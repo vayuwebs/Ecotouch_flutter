@@ -5,10 +5,7 @@ import '../../../theme/app_theme.dart';
 import '../../../models/unit_conversion.dart';
 import '../../../database/repositories/unit_conversion_repository.dart';
 import '../../../utils/validators.dart';
-
-final unitConversionsProvider = FutureProvider<List<UnitConversion>>((ref) async {
-  return await UnitConversionRepository.getAll();
-});
+import '../../../providers/settings_providers.dart';
 
 class UnitConversionsManagement extends ConsumerWidget {
   const UnitConversionsManagement({super.key});
@@ -40,11 +37,10 @@ class UnitConversionsManagement extends ConsumerWidget {
           Text(
             'Define conversion rates between different units',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: AppColors.textSecondary,
-            ),
+                  color: AppColors.textSecondary,
+                ),
           ),
           const SizedBox(height: 24),
-          
           Expanded(
             child: conversionsAsync.when(
               data: (conversions) {
@@ -57,13 +53,17 @@ class UnitConversionsManagement extends ConsumerWidget {
                           Icon(
                             Icons.swap_horiz,
                             size: 64,
-                            color: Theme.of(context).iconTheme.color?.withOpacity(0.3),
+                            color: Theme.of(context)
+                                .iconTheme
+                                .color
+                                ?.withOpacity(0.3),
                           ),
                           const SizedBox(height: 16),
                           const Text('No unit conversions defined yet'),
                           const SizedBox(height: 8),
                           TextButton.icon(
-                            onPressed: () => _showConversionDialog(context, ref),
+                            onPressed: () =>
+                                _showConversionDialog(context, ref),
                             icon: const Icon(Icons.add),
                             label: const Text('Add Your First Conversion'),
                           ),
@@ -100,7 +100,8 @@ class UnitConversionsManagement extends ConsumerWidget {
                           )),
                           DataCell(Text(
                             '1 ${conversion.fromUnit} = ${conversion.conversionFactor} ${conversion.toUnit}',
-                            style: const TextStyle(color: AppColors.textSecondary),
+                            style:
+                                const TextStyle(color: AppColors.textSecondary),
                           )),
                           DataCell(Row(
                             mainAxisSize: MainAxisSize.min,
@@ -116,7 +117,8 @@ class UnitConversionsManagement extends ConsumerWidget {
                                 color: AppColors.primaryBlue,
                               ),
                               IconButton(
-                                icon: const Icon(Icons.delete_outline, size: 18),
+                                icon:
+                                    const Icon(Icons.delete_outline, size: 18),
                                 onPressed: () => _deleteConversion(
                                   context,
                                   ref,
@@ -188,7 +190,7 @@ class UnitConversionsManagement extends ConsumerWidget {
       try {
         await UnitConversionRepository.delete(conversion.id!);
         ref.invalidate(unitConversionsProvider);
-        
+
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -241,7 +243,8 @@ class _ConversionDialogState extends State<_ConversionDialog> {
   @override
   void initState() {
     super.initState();
-    _fromUnitController = TextEditingController(text: widget.conversion?.fromUnit);
+    _fromUnitController =
+        TextEditingController(text: widget.conversion?.fromUnit);
     _toUnitController = TextEditingController(text: widget.conversion?.toUnit);
     _factorController = TextEditingController(
       text: widget.conversion?.conversionFactor.toString(),
@@ -290,7 +293,9 @@ class _ConversionDialogState extends State<_ConversionDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(
-        widget.conversion == null ? 'Add Unit Conversion' : 'Edit Unit Conversion',
+        widget.conversion == null
+            ? 'Add Unit Conversion'
+            : 'Edit Unit Conversion',
       ),
       content: Form(
         key: _formKey,
@@ -309,7 +314,8 @@ class _ConversionDialogState extends State<_ConversionDialog> {
                         hintText: 'e.g., Box',
                         border: OutlineInputBorder(),
                       ),
-                      validator: (value) => Validators.required(value, fieldName: 'From Unit'),
+                      validator: (value) =>
+                          Validators.required(value, fieldName: 'From Unit'),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -334,7 +340,8 @@ class _ConversionDialogState extends State<_ConversionDialog> {
                         hintText: 'e.g., kg',
                         border: OutlineInputBorder(),
                       ),
-                      validator: (value) => Validators.required(value, fieldName: 'To Unit'),
+                      validator: (value) =>
+                          Validators.required(value, fieldName: 'To Unit'),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -358,7 +365,8 @@ class _ConversionDialogState extends State<_ConversionDialog> {
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
-                validator: (value) => Validators.positiveNumber(value, fieldName: 'Factor'),
+                validator: (value) =>
+                    Validators.positiveNumber(value, fieldName: 'Factor'),
               ),
             ],
           ),

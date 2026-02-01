@@ -12,7 +12,8 @@ import '../../widgets/status_badge.dart';
 import '../../services/export_service.dart';
 import '../../widgets/export_dialog.dart';
 
-final attendanceListProvider = FutureProvider.family<List<Attendance>, DateTime>((ref, date) async {
+final attendanceListProvider =
+    FutureProvider.family<List<Attendance>, DateTime>((ref, date) async {
   return await AttendanceRepository.getByDate(date);
 });
 
@@ -53,52 +54,74 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     } else if (config.scope == ExportScope.month) {
       start = config.date!;
       end = DateTime(start.year, start.month + 1, 0);
+    } else if (config.scope == ExportScope.week) {
+      start = app_date_utils.DateUtils.getStartOfWeek(config.date!);
+      end = app_date_utils.DateUtils.getEndOfWeek(config.date!);
     } else {
-      // Week or Custom
+      // Custom
+      if (config.customRange == null) return;
       start = config.customRange!.start;
       end = config.customRange!.end;
     }
 
     try {
       final data = await AttendanceRepository.getByDateRange(start, end);
-      
+
       if (data.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No attendance records found for selected period')),
+            const SnackBar(
+                content:
+                    Text('No attendance records found for selected period')),
           );
         }
         return;
       }
 
       final headers = ['Date', 'Worker Name', 'Status', 'Time In', 'Time Out'];
-      final rows = data.map((e) => [
-        app_date_utils.DateUtils.formatDate(e.date),
-        e.workerName ?? 'Unknown',
-        e.status.displayName,
-        e.timeIn ?? '-',
-        e.timeOut ?? '-'
-      ]).toList();
+      final rows = data
+          .map((e) => [
+                app_date_utils.DateUtils.formatDate(e.date),
+                e.workerName ?? 'Unknown',
+                e.status.displayName,
+                e.timeIn ?? '-',
+                e.timeOut ?? '-'
+              ])
+          .toList();
 
-      final title = 'Attendance Report (${app_date_utils.DateUtils.formatDate(start)} - ${app_date_utils.DateUtils.formatDate(end)})';
+      final title =
+          'Attendance Report (${app_date_utils.DateUtils.formatDate(start)} - ${app_date_utils.DateUtils.formatDate(end)})';
 
+      String? path;
       if (config.format == ExportFormat.excel) {
-        await ExportService().exportToExcel(
+        path = await ExportService().exportToExcel(
           title: title,
           headers: headers,
           data: rows,
         );
       } else {
-        await ExportService().exportToPdf(
+        path = await ExportService().exportToPdf(
           title: title,
           headers: headers,
           data: rows,
         );
       }
+
+      if (mounted && path != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Report saved to: $path'),
+            backgroundColor: AppColors.success,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e'), backgroundColor: AppColors.error),
+          SnackBar(
+              content: Text('Export failed: $e'),
+              backgroundColor: AppColors.error),
         );
       }
     }
@@ -130,39 +153,44 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                     Text(
                       'Mark and track daily worker attendance',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
+                            color: AppColors.textSecondary,
+                          ),
                     ),
                   ],
                 ),
                 const Spacer(),
-                
+
                 // Export Button
                 IconButton(
                   onPressed: _handleExport,
                   icon: const Icon(Icons.download),
                   tooltip: 'Export Report',
                   style: IconButton.styleFrom(
-                    backgroundColor: Theme.of(context).brightness == Brightness.dark 
-                        ? AppColors.darkSurfaceVariant 
-                        : AppColors.lightSurfaceVariant,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    backgroundColor:
+                        Theme.of(context).brightness == Brightness.dark
+                            ? AppColors.darkSurfaceVariant
+                            : AppColors.lightSurfaceVariant,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
                   ),
                 ),
                 const SizedBox(width: 12),
 
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).brightness == Brightness.dark 
-                        ? AppColors.darkSurfaceVariant 
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? AppColors.darkSurfaceVariant
                         : AppColors.lightSurfaceVariant,
                     borderRadius: BorderRadius.circular(AppTheme.borderRadius),
                     border: Border.all(color: Theme.of(context).dividerColor),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.calendar_today, size: 16, color: Theme.of(context).textTheme.bodyMedium?.color),
+                      Icon(Icons.calendar_today,
+                          size: 16,
+                          color: Theme.of(context).textTheme.bodyMedium?.color),
                       const SizedBox(width: 8),
                       Text(
                         app_date_utils.DateUtils.formatDate(selectedDate),
@@ -183,15 +211,21 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                 Expanded(
                   flex: 4,
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.only(left: 32, right: 24, bottom: 32),
+                    padding:
+                        const EdgeInsets.only(left: 32, right: 24, bottom: 32),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
                             Text(
-                              _editingId == null ? 'Mark Attendance' : 'Edit Attendance',
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 18),
+                              _editingId == null
+                                  ? 'Mark Attendance'
+                                  : 'Edit Attendance',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(fontSize: 18),
                             ),
                             if (_editingId != null) const Spacer(),
                             if (_editingId != null)
@@ -206,7 +240,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                           ],
                         ),
                         const SizedBox(height: 24),
-                        
+
                         // Worker Dropdown
                         labourersAsync.when(
                           data: (workers) {
@@ -215,15 +249,20 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                                 decoration: const InputDecoration(
                                   labelText: 'Select Worker',
                                   border: OutlineInputBorder(),
-                                  helperText: 'Add workers in Settings > Workers',
+                                  helperText:
+                                      'Add workers in Settings > Workers',
                                 ),
                                 child: Text(
-                                  'No workers available', 
-                                  style: TextStyle(color: Theme.of(context).textTheme.bodyMedium?.color),
+                                  'No workers available',
+                                  style: TextStyle(
+                                      color: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.color),
                                 ),
                               );
                             }
-                            
+
                             return DropdownButtonFormField<Worker>(
                               value: _selectedWorker,
                               decoration: const InputDecoration(
@@ -242,11 +281,12 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                             );
                           },
                           loading: () => const LinearProgressIndicator(),
-                          error: (_, __) => const Text('Error loading workers', style: TextStyle(color: AppColors.error)),
+                          error: (_, __) => const Text('Error loading workers',
+                              style: TextStyle(color: AppColors.error)),
                         ),
-                        
+
                         const SizedBox(height: 24),
-                        
+
                         // Status Radio Buttons
                         Text(
                           'Status',
@@ -256,17 +296,19 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                         Row(
                           children: [
                             Expanded(
-                              child: _buildStatusRadio(AttendanceStatus.fullDay, 'Full Day'),
+                              child: _buildStatusRadio(
+                                  AttendanceStatus.fullDay, 'Full Day'),
                             ),
                             const SizedBox(width: 16),
                             Expanded(
-                              child: _buildStatusRadio(AttendanceStatus.halfDay, 'Half Day'),
+                              child: _buildStatusRadio(
+                                  AttendanceStatus.halfDay, 'Half Day'),
                             ),
                           ],
                         ),
-                        
+
                         const SizedBox(height: 24),
-                        
+
                         // Time In Picker
                         InkWell(
                           onTap: () => _selectTimeIn(context),
@@ -279,14 +321,16 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                               _timeIn?.format(context) ?? 'Select Time',
                               style: TextStyle(
                                 fontWeight: FontWeight.w500,
-                                color: _timeIn == null ? Theme.of(context).hintColor : null,
+                                color: _timeIn == null
+                                    ? Theme.of(context).hintColor
+                                    : null,
                               ),
                             ),
                           ),
                         ),
-                        
+
                         const SizedBox(height: 24),
-                        
+
                         // Time Out Picker (optional)
                         InkWell(
                           onTap: () => _selectTimeOut(context),
@@ -297,7 +341,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                               suffixIcon: _timeOut != null
                                   ? IconButton(
                                       icon: const Icon(Icons.clear, size: 18),
-                                      onPressed: () => setState(() => _timeOut = null),
+                                      onPressed: () =>
+                                          setState(() => _timeOut = null),
                                     )
                                   : null,
                             ),
@@ -305,33 +350,54 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                               _timeOut?.format(context) ?? 'Not set',
                               style: TextStyle(
                                 fontWeight: FontWeight.w500,
-                                color: _timeOut == null ? Theme.of(context).hintColor : null,
+                                color: _timeOut == null
+                                    ? Theme.of(context).hintColor
+                                    : null,
                               ),
                             ),
                           ),
                         ),
-                        
+
                         const SizedBox(height: 32),
-                        
+
                         // Submit Button
                         SizedBox(
                           width: double.infinity,
                           height: 48,
                           child: ElevatedButton.icon(
-                            onPressed: _selectedWorker == null || _selectedStatus == null || _timeIn == null || _isSubmitting ? null : _markAttendance,
-                            icon: _isSubmitting 
-                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                : Icon(_editingId == null ? Icons.check : Icons.save),
-                            label: Text(
-                              _isSubmitting 
-                                  ? (_editingId == null ? 'Marking...' : 'Updating...') 
-                                  : (_editingId == null ? 'Mark Attendance' : 'Update Attendance')
-                            ),
+                            onPressed: _selectedWorker == null ||
+                                    _selectedStatus == null ||
+                                    _timeIn == null ||
+                                    _isSubmitting
+                                ? null
+                                : _markAttendance,
+                            icon: _isSubmitting
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.white))
+                                : Icon(_editingId == null
+                                    ? Icons.check
+                                    : Icons.save),
+                            label: Text(_isSubmitting
+                                ? (_editingId == null
+                                    ? 'Marking...'
+                                    : 'Updating...')
+                                : (_editingId == null
+                                    ? 'Mark Attendance'
+                                    : 'Update Attendance')),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: _editingId == null ? AppColors.success : AppColors.primaryBlue,
+                              backgroundColor: _editingId == null
+                                  ? AppColors.success
+                                  : AppColors.primaryBlue,
                               foregroundColor: Colors.white,
-                              disabledBackgroundColor: (_editingId == null ? AppColors.success : AppColors.primaryBlue).withOpacity(0.5),
-                              disabledForegroundColor: Colors.white.withOpacity(0.7),
+                              disabledBackgroundColor: (_editingId == null
+                                      ? AppColors.success
+                                      : AppColors.primaryBlue)
+                                  .withOpacity(0.5),
+                              disabledForegroundColor:
+                                  Colors.white.withOpacity(0.7),
                             ),
                           ),
                         ),
@@ -355,7 +421,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                       decoration: BoxDecoration(
                         color: Theme.of(context).cardColor,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Theme.of(context).dividerColor),
+                        border:
+                            Border.all(color: Theme.of(context).dividerColor),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -365,10 +432,14 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                             padding: const EdgeInsets.all(16),
                             child: Text(
                               "Today's Attendance Log",
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 18),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(fontSize: 18),
                             ),
                           ),
-                          Divider(height: 1, color: Theme.of(context).dividerColor),
+                          Divider(
+                              height: 1, color: Theme.of(context).dividerColor),
 
                           Expanded(
                             child: attendanceAsync.when(
@@ -376,13 +447,20 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                                 if (attendanceList.isEmpty) {
                                   return Center(
                                     child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
-                                        Icon(Icons.event_note, size: 48, color: Theme.of(context).hintColor.withOpacity(0.3)),
+                                        Icon(Icons.event_note,
+                                            size: 48,
+                                            color: Theme.of(context)
+                                                .hintColor
+                                                .withOpacity(0.3)),
                                         const SizedBox(height: 16),
                                         Text(
                                           'No attendance marked today',
-                                          style: TextStyle(color: Theme.of(context).hintColor),
+                                          style: TextStyle(
+                                              color:
+                                                  Theme.of(context).hintColor),
                                         ),
                                       ],
                                     ),
@@ -393,98 +471,136 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                                   borderRadius: BorderRadius.circular(8),
                                   child: ListView.separated(
                                     itemCount: attendanceList.length,
-                                    separatorBuilder: (c, i) => Divider(height: 1, indent: 0, endIndent: 0, color: Theme.of(context).dividerColor),
+                                    separatorBuilder: (c, i) => Divider(
+                                        height: 1,
+                                        indent: 0,
+                                        endIndent: 0,
+                                        color: Theme.of(context).dividerColor),
                                     itemBuilder: (context, index) {
                                       final attendance = attendanceList[index];
                                       return Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 12),
                                         child: Row(
                                           children: [
                                             // Worker Info
                                             Expanded(
                                               flex: 2,
                                               child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
                                                 children: [
                                                   Text(
-                                                    attendance.workerName ?? 'Unknown',
-                                                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                                    attendance.workerName ??
+                                                        'Unknown',
+                                                    style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        fontSize: 14),
                                                   ),
                                                   const SizedBox(height: 4),
                                                   StatusBadge(
-                                                    label: attendance.status.displayName,
-                                                    type: attendance.status == AttendanceStatus.fullDay ? StatusType.success : StatusType.warning,
+                                                    label: attendance
+                                                        .status.displayName,
+                                                    type: attendance.status ==
+                                                            AttendanceStatus
+                                                                .fullDay
+                                                        ? StatusType.success
+                                                        : StatusType.warning,
                                                   ),
                                                 ],
                                               ),
                                             ),
-                                            
+
                                             // Time In
                                             Expanded(
                                               child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
                                                 children: [
                                                   Text(
                                                     'Time In',
-                                                    style: TextStyle(fontSize: 11, color: Theme.of(context).hintColor),
+                                                    style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: Theme.of(context)
+                                                            .hintColor),
                                                   ),
                                                   const SizedBox(height: 2),
                                                   Text(
                                                     attendance.timeIn ?? '-',
-                                                    style: const TextStyle(fontWeight: FontWeight.w500),
+                                                    style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w500),
                                                   ),
                                                 ],
                                               ),
                                             ),
-                                            
+
                                             // Time Out
                                             Expanded(
                                               child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
                                                 children: [
                                                   Text(
                                                     'Time Out',
-                                                    style: TextStyle(fontSize: 11, color: Theme.of(context).hintColor),
+                                                    style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: Theme.of(context)
+                                                            .hintColor),
                                                   ),
                                                   const SizedBox(height: 2),
                                                   Text(
                                                     attendance.timeOut ?? '-',
-                                                    style: const TextStyle(fontWeight: FontWeight.w500),
+                                                    style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w500),
                                                   ),
                                                 ],
                                               ),
                                             ),
-                                            
+
                                             // Edit Button
                                             IconButton(
-                                              icon: const Icon(Icons.edit_outlined, size: 18),
-                                              onPressed: () => _editAttendance(attendance),
+                                              icon: const Icon(
+                                                  Icons.edit_outlined,
+                                                  size: 18),
+                                              onPressed: () =>
+                                                  _editAttendance(attendance),
                                               tooltip: 'Edit',
                                               color: AppColors.primaryBlue,
                                             ),
 
                                             // Delete Button
                                             IconButton(
-                                              icon: const Icon(Icons.delete_outline, size: 18),
-                                              onPressed: () => _deleteAttendance(attendance),
+                                              icon: const Icon(
+                                                  Icons.delete_outline,
+                                                  size: 18),
+                                              onPressed: () =>
+                                                  _deleteAttendance(attendance),
                                               tooltip: 'Delete',
                                               color: AppColors.error,
                                             ),
-                                            
+
                                             const SizedBox(width: 8),
-                                            
+
                                             // Action Button
                                             if (attendance.timeOut == null)
                                               TextButton.icon(
-                                                onPressed: () => _updateTimeOut(attendance),
-                                                icon: const Icon(Icons.logout, size: 16),
+                                                onPressed: () =>
+                                                    _updateTimeOut(attendance),
+                                                icon: const Icon(Icons.logout,
+                                                    size: 16),
                                                 label: const Text('Mark Out'),
                                                 style: TextButton.styleFrom(
-                                                  foregroundColor: AppColors.primaryBlue,
+                                                  foregroundColor:
+                                                      AppColors.primaryBlue,
                                                 ),
                                               )
                                             else
-                                              const StatusBadge(label: 'Completed', type: StatusType.neutral),
+                                              const StatusBadge(
+                                                  label: 'Completed',
+                                                  type: StatusType.neutral),
                                           ],
                                         ),
                                       );
@@ -492,9 +608,12 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                                   ),
                                 );
                               },
-                              loading: () => const Center(child: CircularProgressIndicator()),
+                              loading: () => const Center(
+                                  child: CircularProgressIndicator()),
                               error: (error, stack) => Center(
-                                child: Text('Error: $error', style: const TextStyle(color: AppColors.error)),
+                                child: Text('Error: $error',
+                                    style: const TextStyle(
+                                        color: AppColors.error)),
                               ),
                             ),
                           ),
@@ -519,12 +638,12 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: isSelected 
-              ? AppColors.primaryBlue.withOpacity(0.1) 
+          color: isSelected
+              ? AppColors.primaryBlue.withOpacity(0.1)
               : Colors.transparent,
           border: Border.all(
-            color: isSelected 
-                ? AppColors.primaryBlue 
+            color: isSelected
+                ? AppColors.primaryBlue
                 : Theme.of(context).dividerColor,
           ),
           borderRadius: BorderRadius.circular(8),
@@ -565,7 +684,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
         );
       },
     );
-    
+
     if (picked != null) {
       if (!mounted) return;
       setState(() {
@@ -587,7 +706,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
         );
       },
     );
-    
+
     if (picked != null) {
       if (!mounted) return;
       setState(() {
@@ -603,7 +722,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
 
     try {
       final selectedDate = ref.read(selectedDateProvider);
-      
+
       final attendance = Attendance(
         id: _editingId,
         workerId: _selectedWorker!.id!,
@@ -638,7 +757,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
           );
         }
       }
-      
+
       ref.invalidate(attendanceListProvider(selectedDate));
       ref.invalidate(dashboardStatsProvider);
 
@@ -650,7 +769,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text(e.toString().replaceAll('Exception: ', '')),
             backgroundColor: AppColors.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -681,20 +800,23 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
           timeOut: timeOut.format(context),
         );
         await AttendanceRepository.update(updatedAttendance);
-        
+
         // Refresh the list
         final selectedDate = ref.read(selectedDateProvider);
         ref.invalidate(attendanceListProvider(selectedDate));
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-             const SnackBar(content: Text('Time out updated'), backgroundColor: AppColors.success),
+            const SnackBar(
+                content: Text('Time out updated'),
+                backgroundColor: AppColors.success),
           );
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
+            SnackBar(
+                content: Text('Error: $e'), backgroundColor: AppColors.error),
           );
         }
       }
@@ -712,7 +834,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     // Parse time strings
     TimeOfDay? timeIn;
     TimeOfDay? timeOut;
-    
+
     if (attendance.timeIn != null) {
       final parts = attendance.timeIn!.split(':');
       if (parts.length == 2) {
@@ -723,7 +845,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
         }
       }
     }
-    
+
     if (attendance.timeOut != null) {
       final parts = attendance.timeOut!.split(':');
       if (parts.length == 2) {
@@ -753,7 +875,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Attendance'),
-        content: Text('Are you sure you want to delete attendance for ${attendance.workerName}?'),
+        content: Text(
+            'Are you sure you want to delete attendance for ${attendance.workerName}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -771,7 +894,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     if (confirm == true && attendance.id != null) {
       try {
         await AttendanceRepository.delete(attendance.id!);
-        
+
         // If deleting the item currently being edited, clear the form
         if (_editingId == attendance.id) {
           _clearForm();
@@ -792,7 +915,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
+            SnackBar(
+                content: Text('Error: $e'), backgroundColor: AppColors.error),
           );
         }
       }
@@ -803,8 +927,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     setState(() {
       _editingId = null;
       _selectedWorker = null;
-      _selectedStatus = AttendanceStatus.fullDay;
-      _timeIn = const TimeOfDay(hour: 9, minute: 0);
+      _selectedStatus = null;
+      _timeIn = null;
       _timeOut = null;
     });
   }

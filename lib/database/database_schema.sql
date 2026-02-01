@@ -1,5 +1,5 @@
 -- Production Management Dashboard Database Schema
--- Version: 1.0
+-- Version: 8.0
 -- Compatible with SQLite
 
 -- ============================================
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS category_raw_materials (
 -- Products
 CREATE TABLE IF NOT EXISTS products (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
+  name TEXT NOT NULL UNIQUE,
   category_id INTEGER NOT NULL,
   unit TEXT,
   initial_stock REAL DEFAULT 0,
@@ -100,9 +100,10 @@ CREATE TABLE IF NOT EXISTS inward (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   raw_material_id INTEGER NOT NULL,
   date TEXT NOT NULL,
-  package_size REAL NOT NULL,
-  quantity INTEGER NOT NULL,
-  total REAL NOT NULL,
+  bag_size REAL NOT NULL,
+  bag_count INTEGER NOT NULL,
+  total_weight REAL NOT NULL,
+  total_cost REAL,
   notes TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY(raw_material_id) REFERENCES raw_materials(id) ON DELETE CASCADE
@@ -115,6 +116,8 @@ CREATE TABLE IF NOT EXISTS production (
   date TEXT NOT NULL,
   batches INTEGER NOT NULL,
   total_quantity REAL NOT NULL,
+  unit_size REAL,
+  unit_count REAL,
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
 );
@@ -124,6 +127,7 @@ CREATE TABLE IF NOT EXISTS production_raw_materials (
   production_id INTEGER NOT NULL,
   raw_material_id INTEGER NOT NULL,
   quantity_used REAL NOT NULL,
+  bag_size REAL,
   FOREIGN KEY(production_id) REFERENCES production(id) ON DELETE CASCADE,
   FOREIGN KEY(raw_material_id) REFERENCES raw_materials(id) ON DELETE CASCADE,
   PRIMARY KEY(production_id, raw_material_id)
@@ -144,7 +148,9 @@ CREATE TABLE IF NOT EXISTS outward (
   product_id INTEGER NOT NULL,
   date TEXT NOT NULL,
   bag_size REAL NOT NULL,
-  quantity INTEGER NOT NULL,
+  bag_count INTEGER NOT NULL,
+  total_weight REAL,
+  price_per_unit REAL DEFAULT 0,
   notes TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
@@ -153,13 +159,16 @@ CREATE TABLE IF NOT EXISTS outward (
 -- Logistics/Trips
 CREATE TABLE IF NOT EXISTS trips (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  product_id INTEGER NOT NULL,
   vehicle_id INTEGER NOT NULL,
   date TEXT NOT NULL,
-  quantity REAL NOT NULL,
   destination TEXT NOT NULL,
+  start_km REAL DEFAULT 0,
+  end_km REAL DEFAULT 0,
+  start_time TEXT,
+  end_time TEXT,
+  fuel_cost REAL DEFAULT 0,
+  other_cost REAL DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
-  FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE,
   FOREIGN KEY(vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
 );
 
@@ -179,8 +188,7 @@ CREATE TABLE IF NOT EXISTS unit_conversions (
   from_unit TEXT NOT NULL,
   to_unit TEXT NOT NULL,
   conversion_factor REAL NOT NULL,
-  created_at TEXT DEFAULT (datetime('now')),
-  UNIQUE(from_unit, to_unit)
+  created_at TEXT DEFAULT (datetime('now'))
 );
 
 -- ============================================

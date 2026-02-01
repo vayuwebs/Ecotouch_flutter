@@ -15,9 +15,10 @@ class AttendanceRepository {
     ''', [dateStr]);
     return results.map((json) => Attendance.fromJson(json)).toList();
   }
-  
+
   /// Get attendance for date range
-  static Future<List<Attendance>> getByDateRange(DateTime startDate, DateTime endDate) async {
+  static Future<List<Attendance>> getByDateRange(
+      DateTime startDate, DateTime endDate) async {
     final startStr = app_date_utils.DateUtils.formatDateForDatabase(startDate);
     final endStr = app_date_utils.DateUtils.formatDateForDatabase(endDate);
     final results = await DatabaseService.rawQuery('''
@@ -29,15 +30,25 @@ class AttendanceRepository {
     ''', [startStr, endStr]);
     return results.map((json) => Attendance.fromJson(json)).toList();
   }
-  
+
   /// Insert attendance
   static Future<int> insert(Attendance attendance) async {
-    return await DatabaseService.insert('attendance', attendance.toJson());
+    try {
+      return await DatabaseService.insert('attendance', attendance.toJson());
+    } catch (e) {
+      final error = e.toString();
+      if (error.contains('UNIQUE constraint failed') ||
+          error.contains('2067')) {
+        throw Exception('Attendance is already marked for this worker today.');
+      }
+      rethrow;
+    }
   }
-  
+
   /// Update attendance (mainly for time_out)
   static Future<int> update(Attendance attendance) async {
-    if (attendance.id == null) throw Exception('Attendance ID is required for update');
+    if (attendance.id == null)
+      throw Exception('Attendance ID is required for update');
     return await DatabaseService.update(
       'attendance',
       attendance.toJson(),
@@ -45,7 +56,7 @@ class AttendanceRepository {
       whereArgs: [attendance.id],
     );
   }
-  
+
   /// Delete attendance
   static Future<int> delete(int id) async {
     return await DatabaseService.delete(
@@ -54,9 +65,10 @@ class AttendanceRepository {
       whereArgs: [id],
     );
   }
-  
+
   /// Get attendance summary for date range
-  static Future<Map<String, dynamic>> getSummary(DateTime startDate, DateTime endDate) async {
+  static Future<Map<String, dynamic>> getSummary(
+      DateTime startDate, DateTime endDate) async {
     final startStr = app_date_utils.DateUtils.formatDateForDatabase(startDate);
     final endStr = app_date_utils.DateUtils.formatDateForDatabase(endDate);
     final results = await DatabaseService.rawQuery('''

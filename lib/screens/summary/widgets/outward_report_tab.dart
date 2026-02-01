@@ -22,11 +22,11 @@ class OutwardReportTab extends ConsumerWidget {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 16),
           child: Row(
-             children: [
-               _buildViewSelector(context, ref, viewMode),
-               const SizedBox(width: 16),
-               _buildDateNavigator(context, ref, dateRange),
-             ],
+            children: [
+              _buildViewSelector(context, ref, viewMode),
+              const SizedBox(width: 16),
+              _buildDateNavigator(context, ref, dateRange),
+            ],
           ),
         ),
 
@@ -34,190 +34,212 @@ class OutwardReportTab extends ConsumerWidget {
           child: SingleChildScrollView(
             padding: const EdgeInsets.only(top: 0),
             child: Column(
-               crossAxisAlignment: CrossAxisAlignment.start,
-               children: [
-                 // Metrics Cards (Unchanged)
-                 dataAsync.when(
-                   data: (data) {
-                     final totals = data['totals'];
-                     final totalQty = (totals['total_quantity'] as num?)?.toDouble() ?? 0.0;
-                     final totalEntries = (totals['total_entries'] as int?) ?? 0;
-          
-                     return Row(
-                       children: [
-                         Expanded(
-                           child: _buildMetricCard(
-                             context, 
-                             'Total Sales Qty', 
-                             '${totalQty.toStringAsFixed(0)}', 
-                             'kg', 
-                             Icons.shopping_cart,
-                             AppColors.chartSecondary
-                           )
-                         ),
-                         const SizedBox(width: 16),
-                         Expanded(
-                           child: _buildMetricCard(
-                             context, 
-                             'Trucks Dispatched', 
-                             '$totalEntries', 
-                             'trucks', 
-                             Icons.local_shipping,
-                             AppColors.success
-                           )
-                         ),
-                         const SizedBox(width: 16),
-                         Expanded(
-                           child: _buildMetricCard(
-                             context, 
-                             'Pending Orders', 
-                             '0', 
-                             'orders', 
-                             Icons.pending_actions,
-                             AppColors.warning
-                           )
-                         ),
-                       ],
-                     );
-                   },
-                   loading: () => const LinearProgressIndicator(),
-                   error: (_,__) => const SizedBox(),
-                 ),
-                 
-                 const SizedBox(height: 24),
-                 
-                 // List Section
-                 Container(
-                   decoration: BoxDecoration(
-                     color: Theme.of(context).cardColor,
-                     borderRadius: BorderRadius.circular(8),
-                     border: Border.all(color: Theme.of(context).dividerColor.withOpacity(0.1)),
-                   ),
-                   child: Column(
-                     children: [
-                       // Header
-                       Padding(
-                         padding: const EdgeInsets.all(16),
-                         child: Row(
-                           children: [
-                             const Expanded(
-                               child: Text(
-                                 'OUTWARD SALES SUMMARY',
-                                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                               ),
-                             ),
-                             _buildExportAction(
-                               Icons.table_view, 
-                               'Export', 
-                               AppColors.success,
-                               () => _handleExport(context, dataAsync)
-                             ),
-                           ],
-                         ),
-                       ),
-                       
-                       const Divider(height: 1),
-                       
-                       // Grouped List Body (Unchanged)
-                       dataAsync.when(
-                          data: (data) {
-                           final list = data['data'] as List<Outward>;
-                           if (list.isEmpty) {
-                             return const Padding(
-                               padding: EdgeInsets.all(32),
-                               child: Center(child: Text("No outward records found for this period.")),
-                             );
-                           }
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Metrics Cards (Unchanged)
+                dataAsync.when(
+                  data: (data) {
+                    final totals = data['totals'];
+                    final totalQty =
+                        (totals['total_quantity'] as num?)?.toDouble() ?? 0.0;
+                    final totalEntries = (totals['total_entries'] as int?) ?? 0;
 
-                           // Grouping Logic (Duplicated)
-                           final Map<String, Map<String, dynamic>> grouped = {};
+                    return Row(
+                      children: [
+                        Expanded(
+                            child: _buildMetricCard(
+                                context,
+                                'Total Sales Qty',
+                                '${totalQty.toStringAsFixed(0)}',
+                                'kg',
+                                Icons.shopping_cart,
+                                AppColors.chartSecondary)),
+                        const SizedBox(width: 16),
+                        Expanded(
+                            child: _buildMetricCard(
+                                context,
+                                'Trucks Dispatched',
+                                '$totalEntries',
+                                'trucks',
+                                Icons.local_shipping,
+                                AppColors.success)),
+                        const SizedBox(width: 16),
+                        Expanded(
+                            child: _buildMetricCard(
+                                context,
+                                'Pending Orders',
+                                '0',
+                                'orders',
+                                Icons.pending_actions,
+                                AppColors.warning)),
+                      ],
+                    );
+                  },
+                  loading: () => const LinearProgressIndicator(),
+                  error: (_, __) => const SizedBox(),
+                ),
 
-                           for (var item in list) {
-                             final name = item.productName ?? 'Unknown';
-                             final weight = item.totalWeight;
-                             final count = item.bagCount.toDouble();
-                             final size = item.bagSize;
+                const SizedBox(height: 24),
 
-                             if (!grouped.containsKey(name)) {
-                               grouped[name] = {
-                                 'total_weight': 0.0,
-                                 'total_count': 0.0,
-                                 'sizes': <double, Map<String, double>>{}
-                               };
-                             }
-                             
-                             grouped[name]!['total_weight'] += weight;
-                             grouped[name]!['total_count'] += count;
-                             
-                             final sizes = grouped[name]!['sizes'] as Map<double, Map<String, double>>;
-                             if (!sizes.containsKey(size)) {
-                               sizes[size] = {'count': 0.0, 'weight': 0.0};
-                             }
-                             sizes[size]!['count'] = (sizes[size]!['count'] ?? 0) + count;
-                             sizes[size]!['weight'] = (sizes[size]!['weight'] ?? 0) + weight;
-                           }
+                // List Section
+                Container(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardColor,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: Theme.of(context).dividerColor.withOpacity(0.1)),
+                  ),
+                  child: Column(
+                    children: [
+                      // Header
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'OUTWARD SALES SUMMARY',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                            ),
+                            _buildExportAction(
+                                Icons.table_view,
+                                'Export',
+                                AppColors.success,
+                                () => _handleExport(context, dataAsync)),
+                          ],
+                        ),
+                      ),
 
-                           return ListView.separated(
-                             shrinkWrap: true,
-                             physics: const NeverScrollableScrollPhysics(),
-                             itemCount: grouped.length,
-                             separatorBuilder: (c, i) => Divider(height: 1, color: Theme.of(context).dividerColor.withOpacity(0.05)),
-                             itemBuilder: (context, index) {
-                               final name = grouped.keys.elementAt(index);
-                               final group = grouped[name]!;
-                               final totalWeight = group['total_weight'] as double;
-                               final totalCount = group['total_count'] as double;
-                               final unit = 'packs';
-                               final sizes = group['sizes'] as Map<double, Map<String, double>>;
+                      const Divider(height: 1),
 
-                               return Card(
-                                 margin: const EdgeInsets.only(bottom: 8),
-                                 elevation: 0,
-                                 shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    side: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.1)),
-                                 ),
-                                 child: InkWell(
-                                   onTap: () => _showDetailDialog(context, name, totalWeight, totalCount, unit, sizes),
-                                   borderRadius: BorderRadius.circular(8),
-                                   child: Padding(
-                                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                     child: Row(
-                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                       children: [
-                                          Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                name, 
-                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                '${totalWeight.toStringAsFixed(1)} kg ($totalCount $unit)',
-                                                style: TextStyle(
+                      // Grouped List Body (Unchanged)
+                      dataAsync.when(
+                        data: (data) {
+                          final list = data['data'] as List<Outward>;
+                          if (list.isEmpty) {
+                            return const Padding(
+                              padding: EdgeInsets.all(32),
+                              child: Center(
+                                  child: Text(
+                                      "No outward records found for this period.")),
+                            );
+                          }
+
+                          // Grouping Logic (Duplicated)
+                          final Map<String, Map<String, dynamic>> grouped = {};
+
+                          for (var item in list) {
+                            final name = item.productName ?? 'Unknown';
+                            final weight = item.totalWeight;
+                            final count = item.bagCount.toDouble();
+                            final size = item.bagSize;
+
+                            if (!grouped.containsKey(name)) {
+                              grouped[name] = {
+                                'total_weight': 0.0,
+                                'total_count': 0.0,
+                                'sizes': <double, Map<String, double>>{}
+                              };
+                            }
+
+                            grouped[name]!['total_weight'] += weight;
+                            grouped[name]!['total_count'] += count;
+
+                            final sizes = grouped[name]!['sizes']
+                                as Map<double, Map<String, double>>;
+                            if (!sizes.containsKey(size)) {
+                              sizes[size] = {'count': 0.0, 'weight': 0.0};
+                            }
+                            sizes[size]!['count'] =
+                                (sizes[size]!['count'] ?? 0) + count;
+                            sizes[size]!['weight'] =
+                                (sizes[size]!['weight'] ?? 0) + weight;
+                          }
+
+                          return ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: grouped.length,
+                            separatorBuilder: (c, i) => Divider(
+                                height: 1,
+                                color: Theme.of(context)
+                                    .dividerColor
+                                    .withOpacity(0.05)),
+                            itemBuilder: (context, index) {
+                              final name = grouped.keys.elementAt(index);
+                              final group = grouped[name]!;
+                              final totalWeight =
+                                  group['total_weight'] as double;
+                              final totalCount = group['total_count'] as double;
+                              final unit = 'packs';
+                              final sizes = group['sizes']
+                                  as Map<double, Map<String, double>>;
+
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  side: BorderSide(
+                                      color: Theme.of(context)
+                                          .dividerColor
+                                          .withOpacity(0.1)),
+                                ),
+                                child: InkWell(
+                                  onTap: () => _showDetailDialog(context, name,
+                                      totalWeight, totalCount, unit, sizes),
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 12),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(name,
+                                                style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 14)),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '${totalWeight.toStringAsFixed(1)} kg ($totalCount $unit)',
+                                              style: TextStyle(
                                                   fontSize: 12,
-                                                  color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.7)
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          Icon(Icons.chevron_right, size: 20, color: Theme.of(context).hintColor),
-                                       ],
-                                     ),
-                                   ),
-                                 ),
-                               );
-                             },
-                           );
-                         },
-                         loading: () => const SizedBox(height: 200, child: Center(child: CircularProgressIndicator())),
-                         error: (e, s) => Center(child: Text('Error loading data: $e')),
-                       ),
-                     ],
-                   ),
-                 ),
-               ],
+                                                  color: Theme.of(context)
+                                                      .textTheme
+                                                      .bodyMedium
+                                                      ?.color
+                                                      ?.withOpacity(0.7)),
+                                            ),
+                                          ],
+                                        ),
+                                        Icon(Icons.chevron_right,
+                                            size: 20,
+                                            color: Theme.of(context).hintColor),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                        loading: () => const SizedBox(
+                            height: 200,
+                            child: Center(child: CircularProgressIndicator())),
+                        error: (e, s) =>
+                            Center(child: Text('Error loading data: $e')),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -225,43 +247,43 @@ class OutwardReportTab extends ConsumerWidget {
     );
   }
 
-  Future<void> _handleExport(BuildContext context, AsyncValue<Map<String, dynamic>> dataAsync) async {
+  Future<void> _handleExport(
+      BuildContext context, AsyncValue<Map<String, dynamic>> dataAsync) async {
     final data = dataAsync.value;
     if (data == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No data to export')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('No data to export')));
       return;
     }
 
     final config = await showDialog<ExportConfig>(
       context: context,
       builder: (c) => const ExportDialog(
-        title: 'Export Outward Summary', 
-        showScopeSelector: false
-      ),
+          title: 'Export Outward Summary', showScopeSelector: false),
     );
 
     if (config == null) return;
 
     final list = data['data'] as List<Outward>;
-    
+
     // Group Data
     final Map<String, Map<String, dynamic>> grouped = {};
     for (var item in list) {
-       final name = item.productName ?? 'Unknown';
-       final weight = item.totalWeight;
-       final count = item.bagCount.toDouble();
-       final size = item.bagSize;
+      final name = item.productName ?? 'Unknown';
+      final weight = item.totalWeight;
+      final count = item.bagCount.toDouble();
+      final size = item.bagSize;
 
-       if (!grouped.containsKey(name)) {
-         grouped[name] = {'sizes': <double, Map<String, double>>{}};
-       }
-       
-       final sizes = grouped[name]!['sizes'] as Map<double, Map<String, double>>;
-       if (!sizes.containsKey(size)) {
-         sizes[size] = {'count': 0.0, 'weight': 0.0};
-       }
-       sizes[size]!['count'] = (sizes[size]!['count'] ?? 0) + count;
-       sizes[size]!['weight'] = (sizes[size]!['weight'] ?? 0) + weight;
+      if (!grouped.containsKey(name)) {
+        grouped[name] = {'sizes': <double, Map<String, double>>{}};
+      }
+
+      final sizes = grouped[name]!['sizes'] as Map<double, Map<String, double>>;
+      if (!sizes.containsKey(size)) {
+        sizes[size] = {'count': 0.0, 'weight': 0.0};
+      }
+      sizes[size]!['count'] = (sizes[size]!['count'] ?? 0) + count;
+      sizes[size]!['weight'] = (sizes[size]!['weight'] ?? 0) + weight;
     }
 
     // Build Rows
@@ -271,9 +293,9 @@ class OutwardReportTab extends ConsumerWidget {
       for (var size in sizes.keys) {
         final stats = sizes[size]!;
         rows.add([
-          name, 
-          size, 
-          stats['count']!.toStringAsFixed(0), 
+          name,
+          size,
+          stats['count']!.toStringAsFixed(0),
           stats['weight']!.toStringAsFixed(1)
         ]);
       }
@@ -281,17 +303,28 @@ class OutwardReportTab extends ConsumerWidget {
 
     final headers = ['Product Name', 'Pack Size (kg)', 'Count', 'Weight (kg)'];
 
+    String? path;
     if (config.format == ExportFormat.excel) {
-      await ExportService().exportToExcel(
+      path = await ExportService().exportToExcel(
         title: 'Outward Summary',
         headers: headers,
         data: rows,
       );
     } else {
-      await ExportService().exportToPdf(
+      path = await ExportService().exportToPdf(
         title: 'Outward Summary',
         headers: headers,
         data: rows,
+      );
+    }
+
+    if (context.mounted && path != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Report saved to: $path'),
+          backgroundColor: AppColors.success,
+          duration: const Duration(seconds: 4),
+        ),
       );
     }
   }
@@ -300,7 +333,8 @@ class OutwardReportTab extends ConsumerWidget {
 
   // ... (build helpers remain)
 
-  Widget _buildExportAction(IconData icon, String label, Color color, VoidCallback onTap) {
+  Widget _buildExportAction(
+      IconData icon, String label, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(4),
@@ -315,14 +349,17 @@ class OutwardReportTab extends ConsumerWidget {
           children: [
             Icon(icon, size: 14, color: color),
             const SizedBox(width: 6),
-            Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600, color: color)),
           ],
         ),
       ),
     );
   }
 
-  Widget _col(BuildContext context, String text, int flex, {TextAlign align = TextAlign.left}) {
+  Widget _col(BuildContext context, String text, int flex,
+      {TextAlign align = TextAlign.left}) {
     return Expanded(
       flex: flex,
       child: Text(
@@ -338,7 +375,8 @@ class OutwardReportTab extends ConsumerWidget {
     );
   }
 
-  Widget _cell(BuildContext context, String text, int flex, {TextAlign align = TextAlign.left, bool isBold = false}) {
+  Widget _cell(BuildContext context, String text, int flex,
+      {TextAlign align = TextAlign.left, bool isBold = false}) {
     return Expanded(
       flex: flex,
       child: Text(
@@ -347,33 +385,37 @@ class OutwardReportTab extends ConsumerWidget {
         style: TextStyle(
           fontSize: 13,
           fontWeight: isBold ? FontWeight.w600 : FontWeight.normal,
-          color: isBold 
-              ? Theme.of(context).textTheme.bodyLarge?.color 
+          color: isBold
+              ? Theme.of(context).textTheme.bodyLarge?.color
               : Theme.of(context).textTheme.bodyMedium?.color,
         ),
       ),
     );
   }
 
-  Widget _buildViewSelector(BuildContext context, WidgetRef ref, ReportViewMode currentMode) {
+  Widget _buildViewSelector(
+      BuildContext context, WidgetRef ref, ReportViewMode currentMode) {
     return Container(
       height: 40,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).dividerColor.withOpacity(0.2)),
+        border:
+            Border.all(color: Theme.of(context).dividerColor.withOpacity(0.2)),
         borderRadius: BorderRadius.circular(4),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<ReportViewMode>(
           value: currentMode,
-          icon: Icon(Icons.keyboard_arrow_down, size: 16, color: Theme.of(context).iconTheme.color),
+          icon: Icon(Icons.keyboard_arrow_down,
+              size: 16, color: Theme.of(context).iconTheme.color),
           style: Theme.of(context).textTheme.bodyMedium,
           onChanged: (ReportViewMode? newValue) {
             if (newValue != null) {
               ref.read(reportViewModeProvider.notifier).state = newValue;
             }
           },
-          items: ReportViewMode.values.map<DropdownMenuItem<ReportViewMode>>((ReportViewMode mode) {
+          items: ReportViewMode.values
+              .map<DropdownMenuItem<ReportViewMode>>((ReportViewMode mode) {
             return DropdownMenuItem<ReportViewMode>(
               value: mode,
               child: Text(mode.label),
@@ -384,12 +426,14 @@ class OutwardReportTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildDateNavigator(BuildContext context, WidgetRef ref, DateTimeRange range) {
+  Widget _buildDateNavigator(
+      BuildContext context, WidgetRef ref, DateTimeRange range) {
     final navigate = ref.read(reportNavigationProvider);
     return Container(
       height: 40,
       decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).dividerColor.withOpacity(0.2)),
+        border:
+            Border.all(color: Theme.of(context).dividerColor.withOpacity(0.2)),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
@@ -406,7 +450,8 @@ class OutwardReportTab extends ConsumerWidget {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               border: Border.symmetric(
-                vertical: BorderSide(color: Theme.of(context).dividerColor.withOpacity(0.2)),
+                vertical: BorderSide(
+                    color: Theme.of(context).dividerColor.withOpacity(0.2)),
               ),
             ),
             child: Text(
@@ -425,13 +470,15 @@ class OutwardReportTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildMetricCard(BuildContext context, String title, String value, String unit, IconData icon, Color color) {
+  Widget _buildMetricCard(BuildContext context, String title, String value,
+      String unit, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Theme.of(context).dividerColor.withOpacity(0.1)),
+        border:
+            Border.all(color: Theme.of(context).dividerColor.withOpacity(0.1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -440,7 +487,9 @@ class OutwardReportTab extends ConsumerWidget {
             children: [
               Icon(icon, size: 20, color: color),
               const SizedBox(width: 8),
-              Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+              Text(title,
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w500)),
             ],
           ),
           const SizedBox(height: 12),
@@ -448,9 +497,13 @@ class OutwardReportTab extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 24, fontWeight: FontWeight.bold)),
               const SizedBox(width: 4),
-              Text(unit, style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
+              Text(unit,
+                  style: TextStyle(
+                      fontSize: 12, color: Theme.of(context).hintColor)),
             ],
           ),
         ],
@@ -458,7 +511,8 @@ class OutwardReportTab extends ConsumerWidget {
     );
   }
 
-  void _showDetailDialog(BuildContext context, String name, double totalWeight, double totalCount, String unit, Map<double, Map<String, double>> sizes) {
+  void _showDetailDialog(BuildContext context, String name, double totalWeight,
+      double totalCount, String unit, Map<double, Map<String, double>> sizes) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -471,7 +525,8 @@ class OutwardReportTab extends ConsumerWidget {
               Text('Total Weight: ${totalWeight.toStringAsFixed(2)} kg'),
               Text('Total Count: ${totalCount.toStringAsFixed(0)} $unit'),
               const Divider(),
-              const Text('By Pack Size:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('By Pack Size:',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               ...sizes.entries.map((e) {
                 final size = e.key;
@@ -479,7 +534,8 @@ class OutwardReportTab extends ConsumerWidget {
                 final weight = e.value['weight'] as double;
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: Text('$size kg: ${qty.toStringAsFixed(0)} packs (${weight.toStringAsFixed(1)} kg)'),
+                  child: Text(
+                      '$size kg: ${qty.toStringAsFixed(0)} packs (${weight.toStringAsFixed(1)} kg)'),
                 );
               }),
             ],
@@ -487,8 +543,8 @@ class OutwardReportTab extends ConsumerWidget {
         ),
         actions: [
           TextButton(
-             onPressed: () => Navigator.pop(context),
-             child: const Text('Close'),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
           ),
         ],
       ),
