@@ -6,7 +6,7 @@ import '../../../../services/export_service.dart';
 import '../../../../widgets/export_dialog.dart';
 import '../../../../utils/date_utils.dart' as app_date_utils;
 import '../../../../models/production.dart';
-import '../../../../models/production.dart';
+import '../../../../database/repositories/production_repository.dart';
 
 class ProductionReportTab extends ConsumerWidget {
   const ProductionReportTab({super.key});
@@ -27,6 +27,8 @@ class ProductionReportTab extends ConsumerWidget {
               _buildViewSelector(context, ref, viewMode),
               const SizedBox(width: 16),
               _buildDateNavigator(context, ref, dateRange),
+              const Spacer(),
+              _buildExportButton(context),
             ],
           ),
         ),
@@ -122,11 +124,6 @@ class ProductionReportTab extends ConsumerWidget {
                                 ],
                               ),
                             ),
-                            _buildExportAction(
-                                Icons.table_view,
-                                'Export',
-                                AppColors.success,
-                                () => _handleExport(context, dataAsync)),
                           ],
                         ),
                       ),
@@ -267,111 +264,125 @@ class ProductionReportTab extends ConsumerWidget {
     );
   }
 
-  Future<void> _handleExport(
-      BuildContext context, AsyncValue<Map<String, dynamic>> dataAsync) async {
-    final data = dataAsync.value;
-    if (data == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('No data to export')));
-      return;
-    }
+  Widget _buildExportButton(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: () => _handleExport(context),
+      icon: const Icon(Icons.download, size: 18),
+      label: const Text('Export Report'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primaryBlue,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      ),
+    );
+  }
 
+  Future<void> _handleExport(BuildContext context) async {
     final config = await showDialog<ExportConfig>(
       context: context,
       builder: (c) => const ExportDialog(
-          title: 'Export Production Summary', showScopeSelector: false),
+          title: 'Export Production Summary', showScopeSelector: true),
     );
 
     if (config == null) return;
 
-    final list = data['data'] as List<Production>;
+    DateTime start;
+    DateTime end;
 
-    // Group Data for Export
-    final Map<String, Map<String, dynamic>> grouped = {};
-    for (var item in list) {
-      final name = item.productName ?? 'Unknown';
-      final qty = item.totalQuantity;
-      final size = item.unitSize ?? 0.0;
-
-      if (!grouped.containsKey(name)) {
-        grouped[name] = {'sizes': <double, double>{}};
-      }
-
-      final sizes = grouped[name]!['sizes'] as Map<double, double>;
-      sizes[size] = (sizes[size] ?? 0.0) + qty;
-    }
-
-    // Build Rows
-    final List<List<dynamic>> rows = [];
-    for (var name in grouped.keys) {
-      final sizes = grouped[name]!['sizes'] as Map<double, double>;
-      for (var size in sizes.keys) {
-        final qty = sizes[size]!;
-        final boxes = size > 0 ? (qty / size) : 0.0;
-        rows.add([name, size, boxes.toStringAsFixed(1), qty]);
-      }
-    }
-
-    final headers = [
-      'Product Name',
-      'Box Size (pcs)',
-      'Boxes',
-      'Total Quantity'
-    ];
-
-    String? path;
-    if (config.format == ExportFormat.excel) {
-      path = await ExportService().exportToExcel(
-        title: 'Production Summary',
-        headers: headers,
-        data: rows,
-      );
+    if (config.scope == ExportScope.day) {
+      start = config.date!;
+      end = config.date!;
+    } else if (config.scope == ExportScope.month) {
+      start = config.date!;
+      end = DateTime(start.year, start.month + 1, 0);
+    } else if (config.scope == ExportScope.week) {
+      start = app_date_utils.DateUtils.getStartOfWeek(config.date!);
+      end = app_date_utils.DateUtils.getEndOfWeek(config.date!);
     } else {
-      path = await ExportService().exportToPdf(
-        title: 'Production Summary',
-        headers: headers,
-        data: rows,
-      );
+      if (config.customRange == null) return;
+      start = config.customRange!.start;
+      end = config.customRange!.end;
     }
 
-    if (context.mounted && path != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Report saved to: $path'),
-          backgroundColor: AppColors.success,
-          duration: const Duration(seconds: 4),
-        ),
-      );
+    try {
+      final list = await ProductionRepository.getByDateRange(start, end);
+
+      if (list.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('No data found for selected period')));
+        }
+        return;
+      }
+
+      // Group Data for Export
+      final Map<String, Map<String, dynamic>> grouped = {};
+      for (var item in list) {
+        final name = item.productName ?? 'Unknown';
+        final qty = item.totalQuantity;
+        final size = item.unitSize ?? 0.0;
+
+        if (!grouped.containsKey(name)) {
+          grouped[name] = {'sizes': <double, double>{}};
+        }
+
+        final sizes = grouped[name]!['sizes'] as Map<double, double>;
+        sizes[size] = (sizes[size] ?? 0.0) + qty;
+      }
+
+      // Build Rows
+      final List<List<dynamic>> rows = [];
+      for (var name in grouped.keys) {
+        final sizes = grouped[name]!['sizes'] as Map<double, double>;
+        for (var size in sizes.keys) {
+          final qty = sizes[size]!;
+          final boxes = size > 0 ? (qty / size) : 0.0;
+          rows.add([name, size, boxes.toStringAsFixed(1), qty]);
+        }
+      }
+
+      final headers = [
+        'Product Name',
+        'Box Size (pcs)',
+        'Boxes',
+        'Total Quantity'
+      ];
+
+      final title =
+          'Production Summary (${app_date_utils.DateUtils.formatDate(start)} - ${app_date_utils.DateUtils.formatDate(end)})';
+
+      String? path;
+      if (config.format == ExportFormat.excel) {
+        path = await ExportService().exportToExcel(
+          title: title,
+          headers: headers,
+          data: rows,
+        );
+      } else {
+        path = await ExportService().exportToPdf(
+          title: title,
+          headers: headers,
+          data: rows,
+        );
+      }
+
+      if (context.mounted && path != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Report saved to: $path'),
+            backgroundColor: AppColors.success,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: AppColors.error));
+      }
     }
-  }
-
-  // ... (dialog logic remains)
-
-  // ... (build helpers remain)
-
-  Widget _buildExportAction(
-      IconData icon, String label, Color color, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          border: Border.all(color: color.withOpacity(0.2)),
-          borderRadius: BorderRadius.circular(4),
-          color: color.withOpacity(0.05),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 6),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w600, color: color)),
-          ],
-        ),
-      ),
-    );
   }
 
   Widget _col(BuildContext context, String text, int flex,
