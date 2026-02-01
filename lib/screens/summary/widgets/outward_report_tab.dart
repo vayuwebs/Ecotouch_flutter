@@ -6,6 +6,7 @@ import '../../../../services/export_service.dart';
 import '../../../../widgets/export_dialog.dart';
 import '../../../../utils/date_utils.dart' as app_date_utils;
 import '../../../../models/outward.dart';
+import '../../../../database/repositories/outward_repository.dart';
 
 class OutwardReportTab extends ConsumerWidget {
   const OutwardReportTab({super.key});
@@ -26,6 +27,8 @@ class OutwardReportTab extends ConsumerWidget {
               _buildViewSelector(context, ref, viewMode),
               const SizedBox(width: 16),
               _buildDateNavigator(context, ref, dateRange),
+              const Spacer(),
+              _buildExportButton(context),
             ],
           ),
         ),
@@ -103,11 +106,6 @@ class OutwardReportTab extends ConsumerWidget {
                                     fontWeight: FontWeight.bold, fontSize: 16),
                               ),
                             ),
-                            _buildExportAction(
-                                Icons.table_view,
-                                'Export',
-                                AppColors.success,
-                                () => _handleExport(context, dataAsync)),
                           ],
                         ),
                       ),
@@ -247,116 +245,140 @@ class OutwardReportTab extends ConsumerWidget {
     );
   }
 
-  Future<void> _handleExport(
-      BuildContext context, AsyncValue<Map<String, dynamic>> dataAsync) async {
-    final data = dataAsync.value;
-    if (data == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('No data to export')));
-      return;
-    }
+  Widget _buildExportButton(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: () => _handleExport(context),
+      icon: const Icon(Icons.download, size: 18),
+      label: const Text('Export Report'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primaryBlue,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      ),
+    );
+  }
 
+  Future<void> _handleExport(BuildContext context) async {
     final config = await showDialog<ExportConfig>(
       context: context,
       builder: (c) => const ExportDialog(
-          title: 'Export Outward Summary', showScopeSelector: false),
+          title: 'Export Outward Summary', showScopeSelector: true),
     );
 
     if (config == null) return;
 
-    final list = data['data'] as List<Outward>;
+    DateTime start;
+    DateTime end;
 
-    // Group Data
-    final Map<String, Map<String, dynamic>> grouped = {};
-    for (var item in list) {
-      final name = item.productName ?? 'Unknown';
-      final weight = item.totalWeight;
-      final count = item.bagCount.toDouble();
-      final size = item.bagSize;
-
-      if (!grouped.containsKey(name)) {
-        grouped[name] = {'sizes': <double, Map<String, double>>{}};
-      }
-
-      final sizes = grouped[name]!['sizes'] as Map<double, Map<String, double>>;
-      if (!sizes.containsKey(size)) {
-        sizes[size] = {'count': 0.0, 'weight': 0.0};
-      }
-      sizes[size]!['count'] = (sizes[size]!['count'] ?? 0) + count;
-      sizes[size]!['weight'] = (sizes[size]!['weight'] ?? 0) + weight;
-    }
-
-    // Build Rows
-    final List<List<dynamic>> rows = [];
-    for (var name in grouped.keys) {
-      final sizes = grouped[name]!['sizes'] as Map<double, Map<String, double>>;
-      for (var size in sizes.keys) {
-        final stats = sizes[size]!;
-        rows.add([
-          name,
-          size,
-          stats['count']!.toStringAsFixed(0),
-          stats['weight']!.toStringAsFixed(1)
-        ]);
-      }
-    }
-
-    final headers = ['Product Name', 'Pack Size (kg)', 'Count', 'Weight (kg)'];
-
-    String? path;
-    if (config.format == ExportFormat.excel) {
-      path = await ExportService().exportToExcel(
-        title: 'Outward Summary',
-        headers: headers,
-        data: rows,
-      );
+    if (config.scope == ExportScope.day) {
+      start = config.date!;
+      end = config.date!;
+    } else if (config.scope == ExportScope.month) {
+      start = config.date!;
+      end = DateTime(start.year, start.month + 1, 0);
+    } else if (config.scope == ExportScope.week) {
+      start = app_date_utils.DateUtils.getStartOfWeek(config.date!);
+      end = app_date_utils.DateUtils.getEndOfWeek(config.date!);
     } else {
-      path = await ExportService().exportToPdf(
-        title: 'Outward Summary',
-        headers: headers,
-        data: rows,
-      );
+      if (config.customRange == null) return;
+      start = config.customRange!.start;
+      end = config.customRange!.end;
     }
 
-    if (context.mounted && path != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Report saved to: $path'),
-          backgroundColor: AppColors.success,
-          duration: const Duration(seconds: 4),
-        ),
-      );
+    try {
+      final list = await OutwardRepository.getByDateRange(start, end);
+
+      if (list.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('No data found for selected period')));
+        }
+        return;
+      }
+
+      // Group Data
+      final Map<String, Map<String, dynamic>> grouped = {};
+      for (var item in list) {
+        final name = item.productName ?? 'Unknown';
+        final weight = item.totalWeight;
+        final count = item.bagCount.toDouble();
+        final size = item.bagSize;
+
+        if (!grouped.containsKey(name)) {
+          grouped[name] = {'sizes': <double, Map<String, double>>{}};
+        }
+
+        final sizes =
+            grouped[name]!['sizes'] as Map<double, Map<String, double>>;
+        if (!sizes.containsKey(size)) {
+          sizes[size] = {'count': 0.0, 'weight': 0.0};
+        }
+        sizes[size]!['count'] = (sizes[size]!['count'] ?? 0) + count;
+        sizes[size]!['weight'] = (sizes[size]!['weight'] ?? 0) + weight;
+      }
+
+      // Build Rows
+      final List<List<dynamic>> rows = [];
+      for (var name in grouped.keys) {
+        final sizes =
+            grouped[name]!['sizes'] as Map<double, Map<String, double>>;
+        for (var size in sizes.keys) {
+          final stats = sizes[size]!;
+          rows.add([
+            name,
+            size,
+            stats['count']!.toStringAsFixed(0),
+            stats['weight']!.toStringAsFixed(1)
+          ]);
+        }
+      }
+
+      final headers = [
+        'Product Name',
+        'Pack Size (kg)',
+        'Count',
+        'Weight (kg)'
+      ];
+      final title =
+          'Outward Summary (${app_date_utils.DateUtils.formatDate(start)} - ${app_date_utils.DateUtils.formatDate(end)})';
+
+      String? path;
+      if (config.format == ExportFormat.excel) {
+        path = await ExportService().exportToExcel(
+          title: title,
+          headers: headers,
+          data: rows,
+        );
+      } else {
+        path = await ExportService().exportToPdf(
+          title: title,
+          headers: headers,
+          data: rows,
+        );
+      }
+
+      if (context.mounted && path != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Report saved to: $path'),
+            backgroundColor: AppColors.success,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: AppColors.error));
+      }
     }
   }
 
   // ... (dialog logic remains)
 
   // ... (build helpers remain)
-
-  Widget _buildExportAction(
-      IconData icon, String label, Color color, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          border: Border.all(color: color.withOpacity(0.2)),
-          borderRadius: BorderRadius.circular(4),
-          color: color.withOpacity(0.05),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 6),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w600, color: color)),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _col(BuildContext context, String text, int flex,
       {TextAlign align = TextAlign.left}) {
