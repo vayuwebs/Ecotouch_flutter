@@ -49,8 +49,8 @@ class _WorkersManagementState extends ConsumerState<WorkersManagement> {
                   Text(
                     'Add and manage employees, drivers, and labourers',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).textTheme.bodyMedium?.color,
-                    ),
+                          color: Theme.of(context).textTheme.bodyMedium?.color,
+                        ),
                   ),
                 ],
               ),
@@ -71,12 +71,15 @@ class _WorkersManagementState extends ConsumerState<WorkersManagement> {
                 ref.read(workerTypeFilterProvider.notifier).state = null;
               }),
               const SizedBox(width: 12),
-              _buildFilterChip('Labourers', typeFilter == WorkerType.labour, () {
-                ref.read(workerTypeFilterProvider.notifier).state = WorkerType.labour;
+              _buildFilterChip('Labourers', typeFilter == WorkerType.labour,
+                  () {
+                ref.read(workerTypeFilterProvider.notifier).state =
+                    WorkerType.labour;
               }),
               const SizedBox(width: 12),
               _buildFilterChip('Drivers', typeFilter == WorkerType.driver, () {
-                ref.read(workerTypeFilterProvider.notifier).state = WorkerType.driver;
+                ref.read(workerTypeFilterProvider.notifier).state =
+                    WorkerType.driver;
               }),
             ],
           ),
@@ -95,13 +98,22 @@ class _WorkersManagementState extends ConsumerState<WorkersManagement> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.people_outline, size: 64, color: Theme.of(context).iconTheme.color?.withOpacity(0.5)),
+                        Icon(Icons.people_outline,
+                            size: 64,
+                            color: Theme.of(context)
+                                .iconTheme
+                                .color
+                                ?.withOpacity(0.5)),
                         const SizedBox(height: 16),
                         Text(
                           'No workers found',
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: Theme.of(context).textTheme.bodyMedium?.color,
-                          ),
+                          style:
+                              Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.color,
+                                  ),
                         ),
                         const SizedBox(height: 16),
                         if (typeFilter == null)
@@ -130,7 +142,9 @@ class _WorkersManagementState extends ConsumerState<WorkersManagement> {
                         ],
                         rows: filteredWorkers.map((worker) {
                           return DataRow(cells: [
-                            DataCell(Text(worker.name, style: const TextStyle(fontWeight: FontWeight.w500))),
+                            DataCell(Text(worker.name,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w500))),
                             DataCell(StatusBadge(
                               label: worker.type.displayName,
                               type: StatusType.info,
@@ -143,12 +157,14 @@ class _WorkersManagementState extends ConsumerState<WorkersManagement> {
                                 children: [
                                   IconButton(
                                     icon: const Icon(Icons.edit, size: 18),
-                                    onPressed: () => _showEditWorkerDialog(context, worker),
+                                    onPressed: () =>
+                                        _showEditWorkerDialog(context, worker),
                                     tooltip: 'Edit',
                                     color: AppColors.primaryBlue,
                                   ),
                                   IconButton(
-                                    icon: const Icon(Icons.delete_outline, size: 18),
+                                    icon: const Icon(Icons.delete_outline,
+                                        size: 18),
                                     onPressed: () => _deleteWorker(worker),
                                     tooltip: 'Delete',
                                     color: AppColors.error,
@@ -165,7 +181,8 @@ class _WorkersManagementState extends ConsumerState<WorkersManagement> {
               },
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (error, stack) => Center(
-                child: Text('Error: $error', style: const TextStyle(color: AppColors.error)),
+                child: Text('Error: $error',
+                    style: const TextStyle(color: AppColors.error)),
               ),
             ),
           ),
@@ -184,13 +201,17 @@ class _WorkersManagementState extends ConsumerState<WorkersManagement> {
           color: isSelected ? AppColors.primaryBlue : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? AppColors.primaryBlue : Theme.of(context).dividerColor,
+            color: isSelected
+                ? AppColors.primaryBlue
+                : Theme.of(context).dividerColor,
           ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? Colors.white : Theme.of(context).textTheme.bodyMedium?.color,
+            color: isSelected
+                ? Colors.white
+                : Theme.of(context).textTheme.bodyMedium?.color,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
             fontSize: 13,
           ),
@@ -206,14 +227,16 @@ class _WorkersManagementState extends ConsumerState<WorkersManagement> {
         onSave: (worker) async {
           await WorkerRepository.insert(worker);
           ref.invalidate(workersProvider);
-// Providers invalidation cleanup
+          // Providers invalidation cleanup
           ref.invalidate(dashboardStatsProvider);
+          ref.invalidate(labourersProvider);
         },
       ),
     );
   }
 
-  Future<void> _showEditWorkerDialog(BuildContext context, Worker worker) async {
+  Future<void> _showEditWorkerDialog(
+      BuildContext context, Worker worker) async {
     await showDialog(
       context: context,
       builder: (context) => _WorkerDialog(
@@ -221,8 +244,9 @@ class _WorkersManagementState extends ConsumerState<WorkersManagement> {
         onSave: (updatedWorker) async {
           await WorkerRepository.update(updatedWorker);
           ref.invalidate(workersProvider);
-// Providers invalidation cleanup
+          // Providers invalidation cleanup
           ref.invalidate(dashboardStatsProvider);
+          ref.invalidate(labourersProvider);
         },
       ),
     );
@@ -233,7 +257,8 @@ class _WorkersManagementState extends ConsumerState<WorkersManagement> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Worker'),
-        content: Text('Are you sure you want to delete ${worker.name}? This cannot be undone.'),
+        content: Text(
+            'Are you sure you want to delete ${worker.name}? This cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -253,6 +278,7 @@ class _WorkersManagementState extends ConsumerState<WorkersManagement> {
       ref.invalidate(workersProvider);
       // Providers invalidation cleanup
       ref.invalidate(dashboardStatsProvider);
+      ref.invalidate(labourersProvider);
     }
   }
 }
@@ -309,7 +335,8 @@ class _WorkerDialogState extends State<_WorkerDialog> {
                   labelText: 'Full Name *',
                   prefixIcon: Icon(Icons.person_outline),
                 ),
-                validator: (value) => Validators.required(value, fieldName: 'Name'),
+                validator: (value) =>
+                    Validators.required(value, fieldName: 'Name'),
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<WorkerType>(
@@ -378,8 +405,12 @@ class _WorkerDialogState extends State<_WorkerDialog> {
         id: widget.worker?.id,
         name: _nameController.text.trim(),
         type: _selectedType,
-        city: _cityController.text.trim().isEmpty ? null : _cityController.text.trim(),
-        phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
+        city: _cityController.text.trim().isEmpty
+            ? null
+            : _cityController.text.trim(),
+        phone: _phoneController.text.trim().isEmpty
+            ? null
+            : _phoneController.text.trim(),
       );
 
       await widget.onSave(worker);
@@ -387,7 +418,8 @@ class _WorkerDialogState extends State<_WorkerDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
+          SnackBar(
+              content: Text('Error: $e'), backgroundColor: AppColors.error),
         );
       }
     } finally {

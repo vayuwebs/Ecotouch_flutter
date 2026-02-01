@@ -32,8 +32,24 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
   int? _editingId;
   Worker? _selectedWorker;
   AttendanceStatus? _selectedStatus;
-  TimeOfDay? _timeIn;
-  TimeOfDay? _timeOut;
+  final TextEditingController _timeInHourController = TextEditingController();
+  final TextEditingController _timeInMinuteController = TextEditingController();
+  DayPeriod _timeInPeriod = DayPeriod.am;
+
+  final TextEditingController _timeOutHourController = TextEditingController();
+  final TextEditingController _timeOutMinuteController =
+      TextEditingController();
+  DayPeriod _timeOutPeriod = DayPeriod.pm;
+
+  @override
+  void dispose() {
+    _timeInHourController.dispose();
+    _timeInMinuteController.dispose();
+    _timeOutHourController.dispose();
+    _timeOutMinuteController.dispose();
+    super.dispose();
+  }
+
   bool _isSubmitting = false;
   // ... (state variables)
 
@@ -309,53 +325,31 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
 
                         const SizedBox(height: 24),
 
-                        // Time In Picker
-                        InkWell(
-                          onTap: () => _selectTimeIn(context),
-                          child: InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Time In',
-                              prefixIcon: Icon(Icons.access_time),
-                            ),
-                            child: Text(
-                              _timeIn?.format(context) ?? 'Select Time',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w500,
-                                color: _timeIn == null
-                                    ? Theme.of(context).hintColor
-                                    : null,
-                              ),
-                            ),
-                          ),
+                        // Time In Input
+                        _buildTimeInput(
+                          label: 'Time In',
+                          hourController: _timeInHourController,
+                          minuteController: _timeInMinuteController,
+                          period: _timeInPeriod,
+                          onPeriodChanged: (val) =>
+                              setState(() => _timeInPeriod = val),
                         ),
 
                         const SizedBox(height: 24),
 
-                        // Time Out Picker (optional)
-                        InkWell(
-                          onTap: () => _selectTimeOut(context),
-                          child: InputDecorator(
-                            decoration: InputDecoration(
-                              labelText: 'Time Out (Optional)',
-                              prefixIcon: const Icon(Icons.access_time),
-                              suffixIcon: _timeOut != null
-                                  ? IconButton(
-                                      icon: const Icon(Icons.clear, size: 18),
-                                      onPressed: () =>
-                                          setState(() => _timeOut = null),
-                                    )
-                                  : null,
-                            ),
-                            child: Text(
-                              _timeOut?.format(context) ?? 'Not set',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w500,
-                                color: _timeOut == null
-                                    ? Theme.of(context).hintColor
-                                    : null,
-                              ),
-                            ),
-                          ),
+                        // Time Out Input
+                        _buildTimeInput(
+                          label: 'Time Out (Optional)',
+                          hourController: _timeOutHourController,
+                          minuteController: _timeOutMinuteController,
+                          period: _timeOutPeriod,
+                          onPeriodChanged: (val) =>
+                              setState(() => _timeOutPeriod = val),
+                          isOptional: true,
+                          onClear: () {
+                            _timeOutHourController.clear();
+                            _timeOutMinuteController.clear();
+                          },
                         ),
 
                         const SizedBox(height: 32),
@@ -367,7 +361,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                           child: ElevatedButton.icon(
                             onPressed: _selectedWorker == null ||
                                     _selectedStatus == null ||
-                                    _timeIn == null ||
+                                    _timeInHourController.text.isEmpty ||
                                     _isSubmitting
                                 ? null
                                 : _markAttendance,
@@ -671,48 +665,129 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     );
   }
 
-  Future<void> _selectTimeIn(BuildContext context) async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: _timeIn ?? TimeOfDay.now(),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            dialogBackgroundColor: Theme.of(context).cardColor,
-          ),
-          child: child!,
-        );
-      },
+  Widget _buildTimeInput({
+    required String label,
+    required TextEditingController hourController,
+    required TextEditingController minuteController,
+    required DayPeriod period,
+    required ValueChanged<DayPeriod> onPeriodChanged,
+    bool isOptional = false,
+    VoidCallback? onClear,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: Theme.of(context).textTheme.labelLarge),
+            if (isOptional &&
+                onClear != null &&
+                (hourController.text.isNotEmpty ||
+                    minuteController.text.isNotEmpty))
+              InkWell(
+                onTap: onClear,
+                child: Text(
+                  'Clear',
+                  style: TextStyle(
+                      color: AppColors.error,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            // Hour
+            SizedBox(
+              width: 70,
+              child: TextFormField(
+                controller: hourController,
+                keyboardType: TextInputType.number,
+                maxLength: 2,
+                textAlign: TextAlign.center,
+                decoration: const InputDecoration(
+                  hintText: 'HH',
+                  counterText: '',
+                  contentPadding:
+                      EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                ),
+                onChanged: (val) {
+                  if (val.length == 2) {
+                    FocusScope.of(context).nextFocus();
+                  }
+                },
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: Text(':',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            ),
+            // Minute
+            SizedBox(
+              width: 70,
+              child: TextFormField(
+                controller: minuteController,
+                keyboardType: TextInputType.number,
+                maxLength: 2,
+                textAlign: TextAlign.center,
+                decoration: const InputDecoration(
+                  hintText: 'MM',
+                  counterText: '',
+                  contentPadding:
+                      EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            // AM/PM Toggle
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Theme.of(context).dividerColor),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildPeriodButton(
+                      'AM', DayPeriod.am, period, onPeriodChanged),
+                  Container(
+                      width: 1,
+                      height: 32,
+                      color: Theme.of(context).dividerColor),
+                  _buildPeriodButton(
+                      'PM', DayPeriod.pm, period, onPeriodChanged),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
     );
-
-    if (picked != null) {
-      if (!mounted) return;
-      setState(() {
-        _timeIn = picked;
-      });
-    }
   }
 
-  Future<void> _selectTimeOut(BuildContext context) async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: _timeOut ?? const TimeOfDay(hour: 18, minute: 0),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            dialogBackgroundColor: Theme.of(context).cardColor,
+  Widget _buildPeriodButton(String text, DayPeriod value, DayPeriod groupValue,
+      ValueChanged<DayPeriod> onChanged) {
+    final isSelected = value == groupValue;
+    return InkWell(
+      onTap: () => onChanged(value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        color: isSelected
+            ? AppColors.primaryBlue.withOpacity(0.1)
+            : Colors.transparent,
+        child: Text(
+          text,
+          style: TextStyle(
+            color: isSelected ? AppColors.primaryBlue : null,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
           ),
-          child: child!,
-        );
-      },
+        ),
+      ),
     );
-
-    if (picked != null) {
-      if (!mounted) return;
-      setState(() {
-        _timeOut = picked;
-      });
-    }
   }
 
   Future<void> _markAttendance() async {
@@ -723,13 +798,39 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     try {
       final selectedDate = ref.read(selectedDateProvider);
 
+      String timeInStr = '';
+      if (_timeInHourController.text.isNotEmpty &&
+          _timeInMinuteController.text.isNotEmpty) {
+        final h = int.tryParse(_timeInHourController.text) ?? 0;
+        final m = int.tryParse(_timeInMinuteController.text) ?? 0;
+        final tod = TimeOfDay(
+            hour: _timeInPeriod == DayPeriod.pm && h != 12
+                ? h + 12
+                : (_timeInPeriod == DayPeriod.am && h == 12 ? 0 : h),
+            minute: m);
+        timeInStr = tod.format(context);
+      }
+
+      String? timeOutStr;
+      if (_timeOutHourController.text.isNotEmpty &&
+          _timeOutMinuteController.text.isNotEmpty) {
+        final h = int.tryParse(_timeOutHourController.text) ?? 0;
+        final m = int.tryParse(_timeOutMinuteController.text) ?? 0;
+        final tod = TimeOfDay(
+            hour: _timeOutPeriod == DayPeriod.pm && h != 12
+                ? h + 12
+                : (_timeOutPeriod == DayPeriod.am && h == 12 ? 0 : h),
+            minute: m);
+        timeOutStr = tod.format(context);
+      }
+
       final attendance = Attendance(
         id: _editingId,
         workerId: _selectedWorker!.id!,
         date: selectedDate,
         status: _selectedStatus!,
-        timeIn: _timeIn?.format(context) ?? '',
-        timeOut: _timeOut?.format(context),
+        timeIn: timeInStr,
+        timeOut: timeOutStr,
       );
 
       if (_editingId != null) {
@@ -831,38 +932,64 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       orElse: () => Worker(name: 'Unknown', type: WorkerType.labour),
     );
 
-    // Parse time strings
-    TimeOfDay? timeIn;
-    TimeOfDay? timeOut;
-
     if (attendance.timeIn != null) {
-      final parts = attendance.timeIn!.split(':');
-      if (parts.length == 2) {
-        final hour = int.tryParse(parts[0]);
-        final minute = int.tryParse(parts[1].split(' ')[0]);
-        if (hour != null && minute != null) {
-          timeIn = TimeOfDay(hour: hour, minute: minute);
+      // 09:30 AM
+      // This parsing heavily depends on format.
+      // Assuming "9:30 AM" or "09:30 AM" format from TimeOfDay.format(context) en_US usually
+      // Ideally we parse properly. But for now let's try to be robust.
+      // Actually simpler: just parse simple 12h format if possible or standard TimeOfDay
+      // If the string is just HH:mm AM/PM
+
+      // Let's rely on standard flutter TimeOfDay parsing from string if we had a helper, but we don't.
+      // Let's implement manually based on "h:mm a" likely format
+
+      // Heuristic parse:
+      try {
+        // Remove NBSP just in case
+        String t = attendance.timeIn!.replaceAll('\u202F', ' ').trim();
+        final spaceParts = t.split(' ');
+        if (spaceParts.length == 2) {
+          final timeParts = spaceParts[0].split(':');
+          final period = spaceParts[1]; // AM or PM
+          if (timeParts.length == 2) {
+            _timeInHourController.text = timeParts[0];
+            _timeInMinuteController.text = timeParts[1];
+            _timeInPeriod =
+                period.toUpperCase() == 'PM' ? DayPeriod.pm : DayPeriod.am;
+          }
         }
-      }
+      } catch (_) {}
+    } else {
+      _timeInHourController.clear();
+      _timeInMinuteController.clear();
+      _timeInPeriod = DayPeriod.am;
     }
 
     if (attendance.timeOut != null) {
-      final parts = attendance.timeOut!.split(':');
-      if (parts.length == 2) {
-        final hour = int.tryParse(parts[0]);
-        final minute = int.tryParse(parts[1].split(' ')[0]);
-        if (hour != null && minute != null) {
-          timeOut = TimeOfDay(hour: hour, minute: minute);
+      try {
+        String t = attendance.timeOut!.replaceAll('\u202F', ' ').trim();
+        final spaceParts = t.split(' ');
+        if (spaceParts.length == 2) {
+          final timeParts = spaceParts[0].split(':');
+          final period = spaceParts[1]; // AM or PM
+          if (timeParts.length == 2) {
+            _timeOutHourController.text = timeParts[0];
+            _timeOutMinuteController.text = timeParts[1];
+            _timeOutPeriod =
+                period.toUpperCase() == 'PM' ? DayPeriod.pm : DayPeriod.am;
+          }
         }
-      }
+      } catch (_) {}
+    } else {
+      _timeOutHourController.clear();
+      _timeOutMinuteController.clear();
+      _timeOutPeriod = DayPeriod.pm;
     }
 
     setState(() {
       _editingId = attendance.id;
       _selectedWorker = worker.id != null ? worker : null;
       _selectedStatus = attendance.status;
-      _timeIn = timeIn ?? const TimeOfDay(hour: 9, minute: 0);
-      _timeOut = timeOut;
     });
   }
 
@@ -928,8 +1055,12 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       _editingId = null;
       _selectedWorker = null;
       _selectedStatus = null;
-      _timeIn = null;
-      _timeOut = null;
+      _timeInHourController.clear();
+      _timeInMinuteController.clear();
+      _timeInPeriod = DayPeriod.am;
+      _timeOutHourController.clear();
+      _timeOutMinuteController.clear();
+      _timeOutPeriod = DayPeriod.pm;
     });
   }
 }
