@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme/app_colors.dart';
 import '../../database/repositories/production_repository.dart';
@@ -49,6 +50,7 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
     _tabController = TabController(length: 2, vsync: this);
 
     // Add listeners for auto-calc
@@ -62,6 +64,7 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     _totalQuantityController.dispose();
     _batchesController.dispose();
     _notesController.dispose();
@@ -72,6 +75,17 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
       c.dispose();
     }
     super.dispose();
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape) {
+      if (ModalRoute.of(context)?.isCurrent == true) {
+        Navigator.of(context).maybePop();
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _loadExistingProduction() async {
@@ -144,7 +158,15 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
     // Load Unit Conversions
     final allConversions = await UnitConversionRepository.getAll();
     setState(() {
-      _productUnitConversions = allConversions;
+      if (_selectedProduct?.unit != null) {
+        final productUnit = _selectedProduct!.unit!.toLowerCase();
+        _productUnitConversions = allConversions.where((c) {
+          return c.fromUnit.toLowerCase() == productUnit ||
+              c.toUnit.toLowerCase() == productUnit;
+        }).toList();
+      } else {
+        _productUnitConversions = allConversions;
+      }
     });
 
     // Only update quantities if NEW entry
@@ -486,13 +508,18 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
                                           enabled: false,
                                           child: Text("No units available"))
                                     ]
-                                  : _productUnitConversions
-                                      .map((c) => DropdownMenuItem(
-                                            value: c.conversionFactor,
-                                            child: Text(
-                                                "${c.fromUnit} -> ${c.toUnit} (${c.conversionFactor})"),
-                                          ))
-                                      .toList(),
+                                  : (() {
+                                      final seenFactors = <double>{};
+                                      return _productUnitConversions
+                                          .where((c) => seenFactors
+                                              .add(c.conversionFactor))
+                                          .map((c) => DropdownMenuItem(
+                                                value: c.conversionFactor,
+                                                child: Text(
+                                                    "${c.fromUnit} -> ${c.toUnit} (${c.conversionFactor})"),
+                                              ))
+                                          .toList();
+                                    })(),
                               onChanged: _productUnitConversions.isEmpty
                                   ? null
                                   : (val) {

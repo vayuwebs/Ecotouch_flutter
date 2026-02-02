@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme/app_colors.dart';
 
@@ -32,6 +33,7 @@ class _InwardEntryScreenState extends ConsumerState<InwardEntryScreen> {
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
     if (widget.inward != null) {
       _loadExistingInward();
     }
@@ -63,10 +65,22 @@ class _InwardEntryScreenState extends ConsumerState<InwardEntryScreen> {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     _bagSizeController.dispose();
     _bagCountController.dispose();
     _notesController.dispose();
     super.dispose();
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape) {
+      if (ModalRoute.of(context)?.isCurrent == true) {
+        Navigator.of(context).maybePop();
+        return true;
+      }
+    }
+    return false;
   }
 
   void _calculateTotal() {
@@ -136,6 +150,14 @@ class _InwardEntryScreenState extends ConsumerState<InwardEntryScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  String get _containerLabel {
+    final unit = _selectedMaterial?.unit?.toLowerCase() ?? '';
+    if (unit == 'ltr' || unit == 'l') return 'bottles';
+    if (unit == 'kg' || unit == 'gm') return 'bags';
+    if (unit == 'pcs' || unit == 'nos') return 'boxes';
+    return 'packs';
   }
 
   @override
@@ -255,11 +277,11 @@ class _InwardEntryScreenState extends ConsumerState<InwardEntryScreen> {
                         Expanded(
                           child: TextFormField(
                             controller: _bagCountController,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Number of Packs',
-                              suffixText: 'bags',
+                              suffixText: _containerLabel,
                               helperText: 'Count',
-                              border: OutlineInputBorder(),
+                              border: const OutlineInputBorder(),
                             ),
                             keyboardType: TextInputType.number,
                             validator: (value) => Validators.positiveInteger(

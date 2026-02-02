@@ -165,32 +165,33 @@ class StockCalculationService {
       bucket['current_weight'] = remainingWeight;
     }
 
-    // Pass 2: Deduct Legacy Usage Proportions
-    // If there is legacy usage (no bag size specified), we distribute it proportionally across remaining stock
+    // Pass 2: Deduct Legacy Usage (Largest Stock First)
+    // We prioritize deducting from the bucket with the most weight to minimize
+    // the impact on smaller/newer batches (avoiding the "49 bags instead of 50" issue
+    // due to fractional distribution).
     if (legacyUsageMap.isNotEmpty) {
-      // Calculate total remaining weight per material to find proportions
-      final Map<int, double> materialTotalRemaining = {};
-      for (final bucket in buckets) {
-        final materialId = bucket['raw_material_id'] as int;
-        materialTotalRemaining[materialId] =
-            (materialTotalRemaining[materialId] ?? 0) +
-                (bucket['current_weight'] as double);
-      }
+      for (final kv in legacyUsageMap.entries) {
+        final materialId = kv.key;
+        double usageToDeduct = kv.value;
 
-      for (final bucket in buckets) {
-        final materialId = bucket['raw_material_id'] as int;
-        final legacyUsed = legacyUsageMap[materialId] ?? 0;
+        // Get buckets for this material
+        final materialBuckets = buckets
+            .where((b) => (b['raw_material_id'] as int) == materialId)
+            .toList();
 
-        if (legacyUsed > 0) {
+        // Sort by current weight descending (Absorb usage into largest pile)
+        materialBuckets.sort((a, b) => (b['current_weight'] as double)
+            .compareTo(a['current_weight'] as double));
+
+        for (final bucket in materialBuckets) {
+          if (usageToDeduct <= 0) break;
+
           final currentWeight = bucket['current_weight'] as double;
-          final totalRemaining =
-              materialTotalRemaining[materialId] ?? 1; // Avoid div by zero
-
-          if (totalRemaining > 0) {
-            final proportion = currentWeight / totalRemaining;
-            final deductAmount = legacyUsed * proportion;
-
-            bucket['current_weight'] = currentWeight - deductAmount;
+          if (currentWeight > 0) {
+            final deduct =
+                usageToDeduct > currentWeight ? currentWeight : usageToDeduct;
+            bucket['current_weight'] = currentWeight - deduct;
+            usageToDeduct -= deduct;
           }
         }
       }
@@ -370,8 +371,15 @@ class StockCalculationService {
     ''');
 
     final List<StockItem> items = [];
+    final seenProductIds = <int>{};
+
     for (final product in products) {
       final id = product['id'] as int;
+
+      // Skip if we've already processed this product (handling SQL duplicates)
+      if (seenProductIds.contains(id)) continue;
+      seenProductIds.add(id);
+
       final name = product['name'] as String;
       final productUnit = (product['product_unit'] as String?) ?? 'units';
       final innerUnit = product['inner_unit'] as String?;

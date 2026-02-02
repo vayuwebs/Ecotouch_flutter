@@ -263,17 +263,38 @@ class _ConversionDialogState extends State<_ConversionDialog> {
     if (!_formKey.currentState!.validate()) return;
 
     try {
-      final conversion = UnitConversion(
+      final newConversion = UnitConversion(
         id: widget.conversion?.id,
         fromUnit: _fromUnitController.text.trim(),
         toUnit: _toUnitController.text.trim(),
         conversionFactor: double.parse(_factorController.text),
       );
 
+      // Check for duplicates
+      final allConversions = await UnitConversionRepository.getAll();
+      final duplicate = allConversions.any((c) =>
+          c.fromUnit.toLowerCase() == newConversion.fromUnit.toLowerCase() &&
+          c.toUnit.toLowerCase() == newConversion.toUnit.toLowerCase() &&
+          (c.conversionFactor - newConversion.conversionFactor).abs() < 0.001 &&
+          c.id != newConversion.id);
+
+      if (duplicate) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'Duplicate conversion already exists. Please delete the old one or change values.'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+        return;
+      }
+
       if (widget.conversion == null) {
-        await UnitConversionRepository.create(conversion);
+        await UnitConversionRepository.create(newConversion);
       } else {
-        await UnitConversionRepository.update(conversion);
+        await UnitConversionRepository.update(newConversion);
       }
 
       if (mounted) Navigator.pop(context);

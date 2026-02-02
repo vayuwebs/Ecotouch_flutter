@@ -4,7 +4,8 @@ import '../../models/production.dart';
 class ProductionRepository {
   /// Get all production records
   static Future<List<Production>> getAll() async {
-    final results = await DatabaseService.query('production', orderBy: 'date DESC, id DESC');
+    final results = await DatabaseService.query('production',
+        orderBy: 'date DESC, id DESC');
     return results.map((e) => Production.fromJson(e)).toList();
   }
 
@@ -15,45 +16,43 @@ class ProductionRepository {
       SELECT 
         p.*, 
         pr.name as product_name, 
-        pr.unit as product_unit,
-        uc.to_unit as inner_unit
+        pr.unit as product_unit
       FROM production p
       LEFT JOIN products pr ON p.product_id = pr.id
-      LEFT JOIN unit_conversions uc ON pr.unit = uc.from_unit
       WHERE p.date = ?
       ORDER BY p.id DESC
     ''', [dateStr]);
-    
+
     final List<Production> items = [];
     for (final row in results) {
       var production = Production.fromJson(row);
       final workerIds = await getWorkerIds(production.id!);
-      print('DEBUG: Fetched ${workerIds.length} workers for production ${production.id}');
+      print(
+          'DEBUG: Fetched ${workerIds.length} workers for production ${production.id}');
       production = production.copyWith(workerIds: workerIds);
       items.add(production);
     }
-    
+
     return items;
   }
 
   /// Get production records by date range
-  static Future<List<Production>> getByDateRange(DateTime startDate, DateTime endDate) async {
+  static Future<List<Production>> getByDateRange(
+      DateTime startDate, DateTime endDate) async {
     final startStr = startDate.toIso8601String().split('T')[0];
     final endStr = endDate.toIso8601String().split('T')[0];
-    
+
     final results = await DatabaseService.rawQuery('''
       SELECT 
         p.*, 
         pr.name as product_name, 
-        pr.unit as product_unit,
-        uc.to_unit as inner_unit
+        pr.unit as product_unit
       FROM production p
       LEFT JOIN products pr ON p.product_id = pr.id
-      LEFT JOIN unit_conversions uc ON pr.unit = uc.from_unit
       WHERE p.date BETWEEN ? AND ?
       ORDER BY p.date DESC, p.id DESC
     ''', [startStr, endStr]);
-    
+
     final List<Production> items = [];
     for (final row in results) {
       var production = Production.fromJson(row);
@@ -61,24 +60,26 @@ class ProductionRepository {
       production = production.copyWith(workerIds: workerIds);
       items.add(production);
     }
-    
+
     return items;
   }
 
   /// Get daily production stats for the last N days
   /// Returns a list of maps {date: String, total_output: double}
-  static Future<List<Map<String, dynamic>>> getDailyProductionStats(int days) async {
+  static Future<List<Map<String, dynamic>>> getDailyProductionStats(
+      int days) async {
     final now = DateTime.now();
     final startDate = now.subtract(Duration(days: days - 1));
     final startDateStr = startDate.toIso8601String().split('T')[0];
-    
+
     print('🔍 ProductionRepository.getDailyProductionStats:');
-    print('  Querying from: $startDateStr to ${now.toIso8601String().split('T')[0]}');
-    
-    // We want all dates even if 0 production, but standard SQL in sqflite 
+    print(
+        '  Querying from: $startDateStr to ${now.toIso8601String().split('T')[0]}');
+
+    // We want all dates even if 0 production, but standard SQL in sqflite
     // makes generating a date series harder without a date table.
     // For now, we will query existing data and fill gaps in Dart code.
-    
+
     final results = await DatabaseService.rawQuery('''
       SELECT date, SUM(total_quantity) as total_output
       FROM production
@@ -86,12 +87,12 @@ class ProductionRepository {
       GROUP BY date
       ORDER BY date ASC
     ''', [startDateStr]);
-    
+
     print('  Query returned ${results.length} rows');
     for (var row in results) {
       print('    ${row['date']}: ${row['total_output']} units');
     }
-    
+
     return results;
   }
 
@@ -99,9 +100,10 @@ class ProductionRepository {
   static Future<int> insert(Production production) async {
     return await DatabaseService.transaction((txn) async {
       final id = await txn.insert('production', production.toJson());
-      
+
       if (production.workerIds != null && production.workerIds!.isNotEmpty) {
-        print('DEBUG: Inserting ${production.workerIds!.length} workers for production ID $id');
+        print(
+            'DEBUG: Inserting ${production.workerIds!.length} workers for production ID $id');
         for (final workerId in production.workerIds!) {
           print('DEBUG: Inserting worker $workerId');
           await txn.insert('production_workers', {
@@ -118,8 +120,9 @@ class ProductionRepository {
 
   /// Update production entry
   static Future<int> update(Production production) async {
-    if (production.id == null) throw Exception('Production ID is required for update');
-    
+    if (production.id == null)
+      throw Exception('Production ID is required for update');
+
     return await DatabaseService.transaction((txn) async {
       final rows = await txn.update(
         'production',
@@ -127,14 +130,14 @@ class ProductionRepository {
         where: 'id = ?',
         whereArgs: [production.id],
       );
-      
+
       // Update workers
       await txn.delete(
         'production_workers',
         where: 'production_id = ?',
         whereArgs: [production.id],
       );
-      
+
       if (production.workerIds != null && production.workerIds!.isNotEmpty) {
         for (final workerId in production.workerIds!) {
           await txn.insert('production_workers', {
@@ -143,7 +146,7 @@ class ProductionRepository {
           });
         }
       }
-      
+
       return rows;
     });
   }
@@ -161,7 +164,7 @@ class ProductionRepository {
       where: 'production_id = ?',
       whereArgs: [id],
     );
-    
+
     // Delete main production record
     return await DatabaseService.delete(
       'production',
@@ -180,7 +183,8 @@ class ProductionRepository {
 
   /// Get raw material usage for a production entry
   /// Returns List of Maps with keys: raw_material_id, quantity_used
-  static Future<List<Map<String, dynamic>>> getRawMaterialUsage(int productionId) async {
+  static Future<List<Map<String, dynamic>>> getRawMaterialUsage(
+      int productionId) async {
     return await DatabaseService.rawQuery('''
       SELECT raw_material_id, quantity_used, bag_size
       FROM production_raw_materials 

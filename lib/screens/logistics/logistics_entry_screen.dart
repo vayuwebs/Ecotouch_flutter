@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/validators.dart';
@@ -32,6 +33,7 @@ class _LogisticsEntryScreenState extends ConsumerState<LogisticsEntryScreen> {
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
     if (widget.trip != null) {
       _loadExistingTrip();
     }
@@ -89,12 +91,24 @@ class _LogisticsEntryScreenState extends ConsumerState<LogisticsEntryScreen> {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     _destinationController.dispose();
     _startKmController.dispose();
     _endKmController.dispose();
     _fuelCostController.dispose();
     _otherCostController.dispose();
     super.dispose();
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape) {
+      if (ModalRoute.of(context)?.isCurrent == true) {
+        Navigator.of(context).maybePop();
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _submitEntry() async {

@@ -77,8 +77,7 @@ class GatewayScreen extends ConsumerWidget {
                       subtitle: 'Material In',
                       icon: Icons.arrow_circle_down,
                       color: Colors.green,
-                      onTap: () =>
-                          _navigateTo(context, const InwardScreenWrapper()),
+                      onTap: () => _navigateTo(context, const InwardScreen()),
                     ),
                     _buildActionCard(
                       context,
@@ -86,8 +85,7 @@ class GatewayScreen extends ConsumerWidget {
                       subtitle: 'Dispatch & Sales',
                       icon: Icons.arrow_circle_up,
                       color: Colors.redAccent,
-                      onTap: () =>
-                          _navigateTo(context, const OutwardScreenWrapper()),
+                      onTap: () => _navigateTo(context, const OutwardScreen()),
                     ),
                     _buildActionCard(
                       context,
@@ -96,7 +94,7 @@ class GatewayScreen extends ConsumerWidget {
                       icon: Icons.local_shipping,
                       color: Colors.indigo,
                       onTap: () =>
-                          _navigateTo(context, const LogisticsScreenWrapper()),
+                          _navigateTo(context, const LogisticsScreen()),
                     ),
 
                     // --- REPORTS ---
@@ -202,39 +200,6 @@ class GatewayScreen extends ConsumerWidget {
 // WRAPPERS for existing screens to use TallyPageWrapper
 // We can move these to their respective files later or keep here for quick refactor.
 // For now, I'll define simple wrappers here to verify the concept.
-
-class InwardScreenWrapper extends StatelessWidget {
-  const InwardScreenWrapper({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return const TallyPageWrapper(
-      title: 'Gateway of Tally > Inward',
-      child: InwardScreen(),
-    );
-  }
-}
-
-class OutwardScreenWrapper extends StatelessWidget {
-  const OutwardScreenWrapper({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return const TallyPageWrapper(
-      title: 'Gateway of Tally > Outward',
-      child: OutwardScreen(),
-    );
-  }
-}
-
-class LogisticsScreenWrapper extends StatelessWidget {
-  const LogisticsScreenWrapper({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return const TallyPageWrapper(
-      title: 'Gateway of Tally > Logistics',
-      child: LogisticsScreen(),
-    );
-  }
-}
 
 class InventoryScreenWrapper extends StatelessWidget {
   const InventoryScreenWrapper({super.key});

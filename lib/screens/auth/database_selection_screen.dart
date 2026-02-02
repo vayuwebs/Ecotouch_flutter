@@ -61,7 +61,6 @@ class _DatabaseSelectionScreenState
   Future<void> _openDatabase(String dbPath) async {
     setState(() {
       _isLoading = true;
-      _isLoading = true;
     });
 
     try {
@@ -71,9 +70,14 @@ class _DatabaseSelectionScreenState
       if (mounted) {
         ref.read(databasePathProvider.notifier).state = dbPath;
         ref.read(isAuthenticatedProvider.notifier).state = true;
-        Navigator.of(context).push(
+        await Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const GatewayScreen()),
         );
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
