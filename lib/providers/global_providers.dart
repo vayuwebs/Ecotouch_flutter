@@ -7,7 +7,6 @@ import '../database/repositories/raw_material_repository.dart';
 import '../models/product.dart';
 import '../models/raw_material.dart';
 import '../models/worker.dart';
-import '../models/worker.dart';
 import '../models/stock_item.dart';
 import '../database/repositories/worker_repository.dart';
 import '../database/repositories/attendance_repository.dart';
@@ -22,7 +21,8 @@ final selectedDateProvider = StateProvider<DateTime>((ref) {
 
 /// Provider for SharedPreferences instance (must be overridden in main)
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
-  throw UnimplementedError('sharedPreferencesProvider must be overridden in main');
+  throw UnimplementedError(
+      'sharedPreferencesProvider must be overridden in main');
 });
 
 /// Theme Notifier for handling persistence
@@ -30,10 +30,17 @@ class ThemeNotifier extends StateNotifier<bool> {
   final SharedPreferences _prefs;
   static const _themePrefsKey = 'is_dark_mode';
 
-  ThemeNotifier(this._prefs) : super(_prefs.getBool(_themePrefsKey) ?? false); // Default to Light Mode (false)
+  ThemeNotifier(this._prefs)
+      : super(_prefs.getBool(_themePrefsKey) ??
+            false); // Default to Light Mode (false)
 
   void toggleTheme() {
     state = !state;
+    _prefs.setBool(_themePrefsKey, state);
+  }
+
+  void setTheme(bool isDark) {
+    state = isDark;
     _prefs.setBool(_themePrefsKey, state);
   }
 }
@@ -73,7 +80,8 @@ final rawMaterialsProvider = FutureProvider<List<RawMaterial>>((ref) async {
 });
 
 /// Global provider for vehicles list
-final vehiclesProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
+final vehiclesProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
   return await DatabaseService.query('vehicles', orderBy: 'name ASC');
 });
 
@@ -81,30 +89,37 @@ final workersProvider = FutureProvider<List<Worker>>((ref) async {
   return await WorkerRepository.getByType(WorkerType.labour);
 });
 
-final dashboardStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+final dashboardStatsProvider =
+    FutureProvider<Map<String, dynamic>>((ref) async {
   final selectedDate = ref.watch(selectedDateProvider);
-  
+
   // Get attendance count for selected date
   final attendance = await AttendanceRepository.getByDate(selectedDate);
   final workersPresent = attendance.length;
-  
+
   // Get production count for selected date
   final dailyProduction = await ProductionRepository.getByDate(selectedDate);
-  final batchesProduced = dailyProduction.fold(0, (sum, item) => sum + item.batches);
-  
+  final batchesProduced =
+      dailyProduction.fold(0, (sum, item) => sum + item.batches);
+
   // Get stock status
-  final rawMaterialStock = await StockCalculationService.getRawMaterialStockItems(selectedDate);
-  final productStock = await StockCalculationService.getProductStockItems(selectedDate);
-  
-  final lowRawMaterials = rawMaterialStock.where((s) => s.status != StockStatus.sufficient).length;
-  final lowProducts = productStock.where((s) => s.status != StockStatus.sufficient).length;
+  final rawMaterialStock =
+      await StockCalculationService.getRawMaterialStockItems(selectedDate);
+  final productStock =
+      await StockCalculationService.getProductStockItems(selectedDate);
+
+  final lowRawMaterials =
+      rawMaterialStock.where((s) => s.status != StockStatus.sufficient).length;
+  final lowProducts =
+      productStock.where((s) => s.status != StockStatus.sufficient).length;
   final criticalItems = [...rawMaterialStock, ...productStock]
       .where((s) => s.status == StockStatus.critical)
       .length;
-      
+
   // Get production history (Last 7 Days)
-  final productionHistory = await ProductionRepository.getDailyProductionStats(7);
-  
+  final productionHistory =
+      await ProductionRepository.getDailyProductionStats(7);
+
   return {
     'workersPresent': workersPresent,
     'batchesProduced': batchesProduced,

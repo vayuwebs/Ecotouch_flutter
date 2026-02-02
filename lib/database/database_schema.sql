@@ -178,8 +178,12 @@ CREATE TABLE IF NOT EXISTS trips (
 
 -- Preferences/Settings
 CREATE TABLE IF NOT EXISTS preferences (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_name TEXT,
+  address TEXT,
+  phone TEXT,
+  email TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
 );
 
 -- Unit Conversions

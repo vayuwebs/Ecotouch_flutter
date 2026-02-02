@@ -278,7 +278,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                 Icon(Icons.calendar_today, size: 16, color: Theme.of(context).iconTheme.color),
                 const SizedBox(width: 8),
                 Text(
-                  "${selectedDate.day}/${selectedDate.month}/${selectedDate.year}",
+                  '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
                   style: TextStyle(fontWeight: FontWeight.w500, color: Theme.of(context).textTheme.bodyMedium?.color),
                 ),
                 const SizedBox(width: 8),

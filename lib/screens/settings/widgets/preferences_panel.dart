@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../theme/app_colors.dart';
-import '../../../theme/app_theme.dart';
 import '../../../database/database_service.dart';
-import '../../../utils/validators.dart';
 import '../../../providers/global_providers.dart';
 
 final preferencesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
@@ -65,21 +63,21 @@ class _PreferencesPanelState extends ConsumerState<PreferencesPanel> {
                   Text(
                     'Configure general application settings',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).textTheme.bodyMedium?.color,
-                    ),
+                          color: Theme.of(context).textTheme.bodyMedium?.color,
+                        ),
                   ),
                 ],
               ),
             ],
           ),
           const SizedBox(height: 32),
-          
           Expanded(
             child: preferencesAsync.when(
               data: (prefs) {
                 // Initialize controllers with current values
                 if (_companyNameController.text.isEmpty && !_isSaving) {
-                  _companyNameController.text = prefs['company_name'] as String? ?? '';
+                  _companyNameController.text =
+                      prefs['company_name'] as String? ?? '';
                   _addressController.text = prefs['address'] as String? ?? '';
                   _phoneController.text = prefs['phone'] as String? ?? '';
                   _emailController.text = prefs['email'] as String? ?? '';
@@ -99,7 +97,6 @@ class _PreferencesPanelState extends ConsumerState<PreferencesPanel> {
                               style: Theme.of(context).textTheme.titleLarge,
                             ),
                             const SizedBox(height: 24),
-                            
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -126,7 +123,6 @@ class _PreferencesPanelState extends ConsumerState<PreferencesPanel> {
                               ],
                             ),
                             const SizedBox(height: 24),
-                            
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -142,12 +138,12 @@ class _PreferencesPanelState extends ConsumerState<PreferencesPanel> {
                                 ),
                                 const SizedBox(width: 24),
                                 Expanded(
-                                  child: Container(), // Spacer for layout balance
+                                  child:
+                                      Container(), // Spacer for layout balance
                                 ),
                               ],
                             ),
                             const SizedBox(height: 24),
-                            
                             TextFormField(
                               controller: _addressController,
                               decoration: const InputDecoration(
@@ -156,51 +152,64 @@ class _PreferencesPanelState extends ConsumerState<PreferencesPanel> {
                               ),
                               maxLines: 3,
                             ),
-                            
                             const SizedBox(height: 48),
-                            
                             Divider(color: Theme.of(context).dividerColor),
                             const SizedBox(height: 32),
                             const Divider(),
                             const SizedBox(height: 32),
-                            
                             Text(
                               'Appearance',
                               style: Theme.of(context).textTheme.titleLarge,
                             ),
                             const SizedBox(height: 24),
-                            
                             Consumer(
                               builder: (context, ref, _) {
                                 final isDarkMode = ref.watch(themeModeProvider);
                                 return SwitchListTile(
                                   title: const Text('Dark Mode'),
-                                  subtitle: const Text('Enable dark color theme'),
+                                  subtitle:
+                                      const Text('Enable dark color theme'),
                                   value: isDarkMode,
                                   onChanged: (bool value) {
-                                    ref.read(themeModeProvider.notifier).state = value;
+                                    ref
+                                        .read(themeModeProvider.notifier)
+                                        .setTheme(value);
                                   },
                                   secondary: Icon(
-                                    isDarkMode ? Icons.dark_mode : Icons.light_mode,
-                                    color: isDarkMode ? AppColors.primaryBlue : Theme.of(context).iconTheme.color?.withOpacity(0.5),
+                                    isDarkMode
+                                        ? Icons.dark_mode
+                                        : Icons.light_mode,
+                                    color: isDarkMode
+                                        ? AppColors.primaryBlue
+                                        : Theme.of(context)
+                                            .iconTheme
+                                            .color
+                                            ?.withOpacity(0.5),
                                   ),
                                   contentPadding: EdgeInsets.zero,
                                 );
                               },
                             ),
-
                             const SizedBox(height: 32),
                             const Divider(),
                             const SizedBox(height: 32),
-
                             Align(
                               alignment: Alignment.centerRight,
                               child: ElevatedButton.icon(
-                                onPressed: _isSaving ? null : () => _savePreferences(prefs),
-                                icon: _isSaving 
-                                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                  : const Icon(Icons.save),
-                                label: Text(_isSaving ? 'Saving...' : 'Save Preferences'),
+                                onPressed: _isSaving
+                                    ? null
+                                    : () => _savePreferences(prefs),
+                                icon: _isSaving
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white))
+                                    : const Icon(Icons.save),
+                                label: Text(_isSaving
+                                    ? 'Saving...'
+                                    : 'Save Preferences'),
                                 style: ElevatedButton.styleFrom(
                                   minimumSize: const Size(150, 50),
                                 ),
@@ -215,7 +224,8 @@ class _PreferencesPanelState extends ConsumerState<PreferencesPanel> {
               },
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (error, stack) => Center(
-                child: Text('Error: $error', style: const TextStyle(color: AppColors.error)),
+                child: Text('Error: $error',
+                    style: const TextStyle(color: AppColors.error)),
               ),
             ),
           ),
@@ -234,6 +244,22 @@ class _PreferencesPanelState extends ConsumerState<PreferencesPanel> {
         'phone': _phoneController.text.trim(),
         'email': _emailController.text.trim(),
       };
+
+      if (data['company_name'].toString().isEmpty ||
+          data['address'].toString().isEmpty ||
+          data['phone'].toString().isEmpty ||
+          data['email'].toString().isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please enter details to save'),
+              backgroundColor: AppColors.warning,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
 
       if (currentPrefs['id'] == null) {
         await DatabaseService.insert('preferences', data);

@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import 'package:flutter/services.dart';
 import '../../theme/app_colors.dart';
-import '../../theme/app_theme.dart';
+import '../main/tally_page_wrapper.dart';
 import '../../utils/date_utils.dart' as app_date_utils;
 import '../../database/repositories/attendance_repository.dart';
 import '../../database/repositories/worker_repository.dart';
 import '../../models/attendance.dart';
 import '../../models/worker.dart';
 import '../../providers/global_providers.dart';
-import '../../widgets/status_badge.dart';
 import '../../services/export_service.dart';
 import '../../widgets/export_dialog.dart';
 
+// --- DATA PROVIDERS ---
 final attendanceListProvider =
     FutureProvider.family<List<Attendance>, DateTime>((ref, date) async {
   return await AttendanceRepository.getByDate(date);
@@ -21,6 +23,61 @@ final labourersProvider = FutureProvider<List<Worker>>((ref) async {
   return await WorkerRepository.getByType(WorkerType.labour);
 });
 
+// --- LOCAL DATA MODEL FOR REGISTER ---
+enum RegisterStatus { present, halfDay, absent }
+
+class TimeInputData {
+  String hh;
+  String mm;
+  String period; // "AM" or "PM"
+
+  TimeInputData({this.hh = '', this.mm = '', this.period = 'AM'});
+
+  static TimeInputData? fromString(String? timeStr) {
+    if (timeStr == null || timeStr.isEmpty) return null;
+    try {
+      final dt = DateFormat.jm().parse(timeStr);
+      final hh = DateFormat('hh').format(dt);
+      final mm = DateFormat('mm').format(dt);
+      final a = DateFormat('a').format(dt);
+      return TimeInputData(hh: hh, mm: mm, period: a);
+    } catch (_) {
+      try {
+        final dt = DateFormat("HH:mm").parse(timeStr);
+        final hh = DateFormat('hh').format(dt);
+        final mm = DateFormat('mm').format(dt);
+        final a = DateFormat('a').format(dt);
+        return TimeInputData(hh: hh, mm: mm, period: a);
+      } catch (e) {
+        return TimeInputData();
+      }
+    }
+  }
+
+  String toStringFormatted() {
+    if (hh.isEmpty || mm.isEmpty) return '';
+    return "$hh:$mm $period";
+  }
+}
+
+class RegisterRow {
+  final Worker worker;
+  int? attendanceId;
+  RegisterStatus status;
+
+  TimeInputData timeIn;
+  TimeInputData timeOut;
+
+  RegisterRow({
+    required this.worker,
+    this.attendanceId,
+    this.status = RegisterStatus.absent,
+    TimeInputData? initialTimeIn,
+    TimeInputData? initialTimeOut,
+  })  : timeIn = initialTimeIn ?? TimeInputData(),
+        timeOut = initialTimeOut ?? TimeInputData();
+}
+
 class AttendanceScreen extends ConsumerStatefulWidget {
   const AttendanceScreen({super.key});
 
@@ -29,29 +86,412 @@ class AttendanceScreen extends ConsumerStatefulWidget {
 }
 
 class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
-  int? _editingId;
-  Worker? _selectedWorker;
-  AttendanceStatus? _selectedStatus;
-  final TextEditingController _timeInHourController = TextEditingController();
-  final TextEditingController _timeInMinuteController = TextEditingController();
-  DayPeriod _timeInPeriod = DayPeriod.am;
-
-  final TextEditingController _timeOutHourController = TextEditingController();
-  final TextEditingController _timeOutMinuteController =
-      TextEditingController();
-  DayPeriod _timeOutPeriod = DayPeriod.pm;
+  // State
+  bool _isLoading = true;
+  bool _isSaving = false;
+  List<RegisterRow> _rows = [];
+  String? _error;
 
   @override
-  void dispose() {
-    _timeInHourController.dispose();
-    _timeInMinuteController.dispose();
-    _timeOutHourController.dispose();
-    _timeOutMinuteController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    Future.microtask(() => _loadData());
   }
 
-  bool _isSubmitting = false;
-  // ... (state variables)
+  // Effect to reload when date changes
+  void _loadData() async {
+    final selectedDate = ref.read(selectedDateProvider);
+
+    setState(() {
+      _isLoading = true;
+      _error = null;
+      _rows = [];
+    });
+
+    try {
+      final workers = await WorkerRepository.getByType(WorkerType.labour);
+      final attendance = await AttendanceRepository.getByDate(selectedDate);
+
+      final newRows = <RegisterRow>[];
+
+      for (var worker in workers) {
+        final record =
+            attendance.where((a) => a.workerId == worker.id).firstOrNull;
+
+        RegisterStatus status = record?.status == AttendanceStatus.fullDay
+            ? RegisterStatus.present
+            : (record?.status == AttendanceStatus.halfDay
+                ? RegisterStatus.halfDay
+                : RegisterStatus.absent);
+
+        // If no record, default to absent
+        if (record == null) status = RegisterStatus.absent;
+
+        TimeInputData? tIn;
+        TimeInputData? tOut;
+
+        if (record != null) {
+          tIn = TimeInputData.fromString(record.timeIn);
+          tOut = TimeInputData.fromString(record.timeOut);
+        }
+
+        newRows.add(RegisterRow(
+          worker: worker,
+          attendanceId: record?.id,
+          status: status,
+          initialTimeIn: tIn,
+          initialTimeOut: tOut,
+        ));
+      }
+
+      if (mounted) {
+        setState(() {
+          _rows = newRows;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen(selectedDateProvider, (previous, next) {
+      if (previous != next) {
+        _loadData();
+      }
+    });
+
+    final total = _rows.length;
+    final present = _rows
+        .where((r) =>
+            r.status == RegisterStatus.present ||
+            r.status == RegisterStatus.halfDay)
+        .length;
+    final absent = _rows.where((r) => r.status == RegisterStatus.absent).length;
+
+    return TallyPageWrapper(
+      title: 'Attendance Register',
+      child: Column(
+        children: [
+          // 1. Stats Header
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              border: Border(
+                  bottom: BorderSide(color: Theme.of(context).dividerColor)),
+            ),
+            child: Row(
+              children: [
+                _buildStatCard(context, "Total Workers", total.toString()),
+                const SizedBox(width: 24),
+                _buildStatCard(context, "Present", present.toString(),
+                    color: Colors.green),
+                const SizedBox(width: 24),
+                _buildStatCard(context, "Absent", absent.toString(),
+                    color: Colors.red),
+                const Spacer(),
+                ElevatedButton.icon(
+                  onPressed: _isSaving ? null : _saveAll,
+                  icon: _isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.save_outlined, size: 18),
+                  label: Text(_isSaving ? "Saving..." : "Save Register"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryBlue,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 16),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton.icon(
+                  onPressed: _handleExport,
+                  icon: const Icon(Icons.download, size: 18),
+                  label: const Text("Export"),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 16),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 2. Data List
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(
+                        child: Text("Error: $_error",
+                            style: TextStyle(
+                                color: Theme.of(context).colorScheme.error)))
+                    : _buildRegisterList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard(BuildContext context, String label, String value,
+      {Color? color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        border:
+            Border.all(color: Theme.of(context).dividerColor.withOpacity(0.5)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).hintColor,
+                  fontWeight: FontWeight.w500)),
+          const SizedBox(height: 4),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w300,
+                  color:
+                      color ?? Theme.of(context).textTheme.bodyLarge?.color)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRegisterList() {
+    if (_rows.isEmpty) {
+      return Center(
+          child: Text("No workers found.",
+              style: TextStyle(color: Theme.of(context).hintColor)));
+    }
+
+    return ListView.builder(
+      itemCount: _rows.length + 1,
+      itemBuilder: (context, index) {
+        if (index == 0) return SizedBox(height: 50, child: _buildListHeader());
+        final row = _rows[index - 1];
+        return SizedBox(
+            key: ValueKey(row.worker.id),
+            height: 60,
+            child: _buildListRow(row)); // Standard height
+      },
+    );
+  }
+
+  Widget _buildListHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      decoration: BoxDecoration(
+        color: Theme.of(context).canvasColor,
+        border:
+            Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
+      ),
+      child: const Row(
+        children: [
+          Expanded(
+              flex: 3,
+              child: Text("Worker Name",
+                  style: TextStyle(fontWeight: FontWeight.w600))),
+          Expanded(
+              flex: 4,
+              child: Text("Status",
+                  style: TextStyle(fontWeight: FontWeight.w600))),
+          Expanded(
+              flex: 2,
+              child: Text("Time In",
+                  style: TextStyle(fontWeight: FontWeight.w600))),
+          Expanded(
+              flex: 2,
+              child: Text("Time Out",
+                  style: TextStyle(fontWeight: FontWeight.w600))),
+          SizedBox(width: 48),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildListRow(RegisterRow row) {
+    bool isAbsent = row.status == RegisterStatus.absent;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: Theme.of(context).dividerColor.withOpacity(0.5),
+            width: 1.0,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Name
+          Expanded(
+            flex: 3,
+            child: Text(
+              row.worker.name,
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 15),
+            ),
+          ),
+
+          // Status Toggle
+          Expanded(
+            flex: 4,
+            child: Row(
+              children: [
+                _buildStatusChip(
+                    row, RegisterStatus.present, "Present", Colors.green),
+                const SizedBox(width: 8),
+                _buildStatusChip(
+                    row, RegisterStatus.halfDay, "Half Day", Colors.orange),
+                const SizedBox(width: 8),
+                _buildStatusChip(
+                    row, RegisterStatus.absent, "Absent", Colors.red),
+              ],
+            ),
+          ),
+
+          // Time In
+          Expanded(
+            flex: 2,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: InlineTimeInput(
+                data: row.timeIn,
+                enabled: !isAbsent,
+              ),
+            ),
+          ),
+
+          // Time Out
+          Expanded(
+            flex: 2,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: InlineTimeInput(
+                data: row.timeOut,
+                enabled: !isAbsent,
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 48),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusChip(
+      RegisterRow row, RegisterStatus status, String label, Color color) {
+    final isSelected = row.status == status;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          row.status = status;
+          if (status == RegisterStatus.present && row.timeIn.hh.isEmpty) {
+            row.timeIn = TimeInputData(hh: '09', mm: '00', period: 'AM');
+          }
+          if (status == RegisterStatus.halfDay && row.timeIn.hh.isEmpty) {
+            row.timeIn = TimeInputData(hh: '09', mm: '00', period: 'AM');
+          }
+          if (status == RegisterStatus.absent) {
+            row.timeIn = TimeInputData();
+            row.timeOut = TimeInputData();
+          }
+        });
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withOpacity(0.1) : Colors.transparent,
+          border: Border.all(
+              color: isSelected ? color : Theme.of(context).dividerColor),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: isSelected ? color : Theme.of(context).hintColor,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveAll() async {
+    setState(() => _isSaving = true);
+    try {
+      final date = ref.read(selectedDateProvider);
+
+      for (var row in _rows) {
+        if (row.status == RegisterStatus.absent) {
+          if (row.attendanceId != null) {
+            await AttendanceRepository.delete(row.attendanceId!);
+            row.attendanceId = null;
+          }
+        } else {
+          String? timeInStr = row.timeIn.toStringFormatted();
+          String? timeOutStr = row.timeOut.toStringFormatted();
+
+          final attendance = Attendance(
+            id: row.attendanceId,
+            workerId: row.worker.id!,
+            date: date,
+            status: row.status == RegisterStatus.present
+                ? AttendanceStatus.fullDay
+                : AttendanceStatus.halfDay,
+            timeIn: timeInStr.isEmpty ? null : timeInStr,
+            timeOut: timeOutStr.isEmpty ? null : timeOutStr,
+          );
+
+          if (row.attendanceId != null) {
+            await AttendanceRepository.update(attendance);
+          } else {
+            final newId = await AttendanceRepository.insert(attendance);
+            row.attendanceId = newId;
+          }
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: const Text("Attendance Register Saved"),
+              backgroundColor: AppColors.success),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text("Error saving: $e"),
+              backgroundColor: AppColors.error),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
 
   Future<void> _handleExport() async {
     final config = await showDialog<ExportConfig>(
@@ -74,7 +514,6 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       start = app_date_utils.DateUtils.getStartOfWeek(config.date!);
       end = app_date_utils.DateUtils.getEndOfWeek(config.date!);
     } else {
-      // Custom
       if (config.customRange == null) return;
       start = config.customRange!.start;
       end = config.customRange!.end;
@@ -82,18 +521,14 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
 
     try {
       final data = await AttendanceRepository.getByDateRange(start, end);
-
       if (data.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content:
-                    Text('No attendance records found for selected period')),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content:
+                  Text('No attendance records found for selected period')));
         }
         return;
       }
-
       final headers = ['Date', 'Worker Name', 'Status', 'Time In', 'Time Out'];
       final rows = data
           .map((e) => [
@@ -104,963 +539,253 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                 e.timeOut ?? '-'
               ])
           .toList();
-
       final title =
           'Attendance Report (${app_date_utils.DateUtils.formatDate(start)} - ${app_date_utils.DateUtils.formatDate(end)})';
-
       String? path;
-      if (config.format == ExportFormat.excel) {
-        path = await ExportService().exportToExcel(
-          title: title,
-          headers: headers,
-          data: rows,
-        );
-      } else {
-        path = await ExportService().exportToPdf(
-          title: title,
-          headers: headers,
-          data: rows,
-        );
-      }
+      if (config.format == ExportFormat.excel)
+        path = await ExportService()
+            .exportToExcel(title: title, headers: headers, data: rows);
+      else
+        path = await ExportService()
+            .exportToPdf(title: title, headers: headers, data: rows);
 
-      if (mounted && path != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text('Report saved to: $path'),
-            backgroundColor: AppColors.success,
-            duration: const Duration(seconds: 4),
-          ),
-        );
+            backgroundColor: AppColors.success));
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Export failed: $e'),
-              backgroundColor: AppColors.error),
-        );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: AppColors.error));
+    }
+  }
+}
+
+// --- CUSTOM INLINE TIME INPUT WIDGET (UNIFIED - HORIZONTAL TOGGLE) ---
+class InlineTimeInput extends StatefulWidget {
+  final TimeInputData data;
+  final bool enabled;
+
+  const InlineTimeInput({super.key, required this.data, this.enabled = true});
+
+  @override
+  State<InlineTimeInput> createState() => _InlineTimeInputState();
+}
+
+class _InlineTimeInputState extends State<InlineTimeInput> {
+  late TextEditingController _hhCtrl;
+  late TextEditingController _mmCtrl;
+  late FocusNode _hhFocus;
+  late FocusNode _mmFocus;
+
+  @override
+  void initState() {
+    super.initState();
+    _hhCtrl = TextEditingController(text: widget.data.hh);
+    _mmCtrl = TextEditingController(text: widget.data.mm);
+    _hhFocus = FocusNode();
+    _mmFocus = FocusNode();
+
+    _hhCtrl.addListener(() {
+      widget.data.hh = _hhCtrl.text;
+      if (_hhCtrl.text.length == 2 && int.tryParse(_hhCtrl.text) != null) {
+        _mmFocus.requestFocus();
       }
+    });
+
+    _mmCtrl.addListener(() {
+      widget.data.mm = _mmCtrl.text;
+    });
+
+    _hhFocus.addListener(() => setState(() {}));
+    _mmFocus.addListener(() => setState(() {}));
+  }
+
+  @override
+  void didUpdateWidget(InlineTimeInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.data != oldWidget.data) {
+      if (_hhCtrl.text != widget.data.hh) _hhCtrl.text = widget.data.hh;
+      if (_mmCtrl.text != widget.data.mm) _mmCtrl.text = widget.data.mm;
     }
   }
 
   @override
+  void dispose() {
+    _hhCtrl.dispose();
+    _mmCtrl.dispose();
+    _hhFocus.dispose();
+    _mmFocus.dispose();
+    super.dispose();
+  }
+
+  void _setPeriod(String period) {
+    if (!widget.enabled) return;
+    setState(() {
+      widget.data.period = period;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final selectedDate = ref.watch(selectedDateProvider);
-    final attendanceAsync = ref.watch(attendanceListProvider(selectedDate));
-    final labourersAsync = ref.watch(labourersProvider);
+    // LAYOUT: [ HH : MM ] (Spacer) [ AM PM Toggle ]
+    const double height = 40;
+    final bool isFocused = _hhFocus.hasFocus || _mmFocus.hasFocus;
 
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: Column(
-        children: [
-          // Main Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(32, 32, 32, 24),
-            child: Row(
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Attendance',
-                      style: Theme.of(context).textTheme.displayMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Mark and track daily worker attendance',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppColors.textSecondary,
-                          ),
-                    ),
-                  ],
-                ),
-                const Spacer(),
+    // Theme Colors
+    final Color borderColor =
+        isFocused ? AppColors.primaryBlue : Theme.of(context).dividerColor;
+    final Color bgColor = widget.enabled
+        ? Theme.of(context).cardColor
+        : Theme.of(context).disabledColor.withOpacity(0.05);
 
-                // Export Button
-                IconButton(
-                  onPressed: _handleExport,
-                  icon: const Icon(Icons.download),
-                  tooltip: 'Export Report',
-                  style: IconButton.styleFrom(
-                    backgroundColor:
-                        Theme.of(context).brightness == Brightness.dark
-                            ? AppColors.darkSurfaceVariant
-                            : AppColors.lightSurfaceVariant,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                  ),
-                ),
-                const SizedBox(width: 12),
-
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? AppColors.darkSurfaceVariant
-                        : AppColors.lightSurfaceVariant,
-                    borderRadius: BorderRadius.circular(AppTheme.borderRadius),
-                    border: Border.all(color: Theme.of(context).dividerColor),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.calendar_today,
-                          size: 16,
-                          color: Theme.of(context).textTheme.bodyMedium?.color),
-                      const SizedBox(width: 8),
-                      Text(
-                        app_date_utils.DateUtils.formatDate(selectedDate),
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // LEFT PANEL: Entry Form (Flex 4)
-                Expanded(
-                  flex: 4,
-                  child: SingleChildScrollView(
-                    padding:
-                        const EdgeInsets.only(left: 32, right: 24, bottom: 32),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              _editingId == null
-                                  ? 'Mark Attendance'
-                                  : 'Edit Attendance',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(fontSize: 18),
-                            ),
-                            if (_editingId != null) const Spacer(),
-                            if (_editingId != null)
-                              TextButton.icon(
-                                onPressed: _cancelEdit,
-                                icon: const Icon(Icons.close, size: 16),
-                                label: const Text('Cancel Edit'),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: AppColors.error,
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Worker Dropdown
-                        labourersAsync.when(
-                          data: (workers) {
-                            if (workers.isEmpty) {
-                              return InputDecorator(
-                                decoration: const InputDecoration(
-                                  labelText: 'Select Worker',
-                                  border: OutlineInputBorder(),
-                                  helperText:
-                                      'Add workers in Settings > Workers',
-                                ),
-                                child: Text(
-                                  'No workers available',
-                                  style: TextStyle(
-                                      color: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium
-                                          ?.color),
-                                ),
-                              );
-                            }
-
-                            return DropdownButtonFormField<Worker>(
-                              value: _selectedWorker,
-                              decoration: const InputDecoration(
-                                labelText: 'Select Worker',
-                                prefixIcon: Icon(Icons.person_outline),
-                              ),
-                              items: workers.map((worker) {
-                                return DropdownMenuItem(
-                                  value: worker,
-                                  child: Text(worker.name),
-                                );
-                              }).toList(),
-                              onChanged: (worker) {
-                                setState(() => _selectedWorker = worker);
-                              },
-                            );
-                          },
-                          loading: () => const LinearProgressIndicator(),
-                          error: (_, __) => const Text('Error loading workers',
-                              style: TextStyle(color: AppColors.error)),
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        // Status Radio Buttons
-                        Text(
-                          'Status',
-                          style: Theme.of(context).textTheme.labelLarge,
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildStatusRadio(
-                                  AttendanceStatus.fullDay, 'Full Day'),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: _buildStatusRadio(
-                                  AttendanceStatus.halfDay, 'Half Day'),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        // Time In Input
-                        _buildTimeInput(
-                          label: 'Time In',
-                          hourController: _timeInHourController,
-                          minuteController: _timeInMinuteController,
-                          period: _timeInPeriod,
-                          onPeriodChanged: (val) =>
-                              setState(() => _timeInPeriod = val),
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        // Time Out Input
-                        _buildTimeInput(
-                          label: 'Time Out (Optional)',
-                          hourController: _timeOutHourController,
-                          minuteController: _timeOutMinuteController,
-                          period: _timeOutPeriod,
-                          onPeriodChanged: (val) =>
-                              setState(() => _timeOutPeriod = val),
-                          isOptional: true,
-                          onClear: () {
-                            _timeOutHourController.clear();
-                            _timeOutMinuteController.clear();
-                          },
-                        ),
-
-                        const SizedBox(height: 32),
-
-                        // Submit Button
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: ElevatedButton.icon(
-                            onPressed: _selectedWorker == null ||
-                                    _selectedStatus == null ||
-                                    _timeInHourController.text.isEmpty ||
-                                    _isSubmitting
-                                ? null
-                                : _markAttendance,
-                            icon: _isSubmitting
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2, color: Colors.white))
-                                : Icon(_editingId == null
-                                    ? Icons.check
-                                    : Icons.save),
-                            label: Text(_isSubmitting
-                                ? (_editingId == null
-                                    ? 'Marking...'
-                                    : 'Updating...')
-                                : (_editingId == null
-                                    ? 'Mark Attendance'
-                                    : 'Update Attendance')),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _editingId == null
-                                  ? AppColors.success
-                                  : AppColors.primaryBlue,
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor: (_editingId == null
-                                      ? AppColors.success
-                                      : AppColors.primaryBlue)
-                                  .withOpacity(0.5),
-                              disabledForegroundColor:
-                                  Colors.white.withOpacity(0.7),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Vertical Divider
-                Container(
-                  width: 1,
-                  color: Theme.of(context).dividerColor.withOpacity(0.2),
-                ),
-
-                // RIGHT PANEL: Log (Flex 6)
-                Expanded(
-                  flex: 6,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 0, 32, 24),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).cardColor,
-                        borderRadius: BorderRadius.circular(8),
-                        border:
-                            Border.all(color: Theme.of(context).dividerColor),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Log Header
-                          Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Text(
-                              "Today's Attendance Log",
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(fontSize: 18),
-                            ),
-                          ),
-                          Divider(
-                              height: 1, color: Theme.of(context).dividerColor),
-
-                          Expanded(
-                            child: attendanceAsync.when(
-                              data: (attendanceList) {
-                                if (attendanceList.isEmpty) {
-                                  return Center(
-                                    child: Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(Icons.event_note,
-                                            size: 48,
-                                            color: Theme.of(context)
-                                                .hintColor
-                                                .withOpacity(0.3)),
-                                        const SizedBox(height: 16),
-                                        Text(
-                                          'No attendance marked today',
-                                          style: TextStyle(
-                                              color:
-                                                  Theme.of(context).hintColor),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                }
-
-                                return ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: ListView.separated(
-                                    itemCount: attendanceList.length,
-                                    separatorBuilder: (c, i) => Divider(
-                                        height: 1,
-                                        indent: 0,
-                                        endIndent: 0,
-                                        color: Theme.of(context).dividerColor),
-                                    itemBuilder: (context, index) {
-                                      final attendance = attendanceList[index];
-                                      return Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 16, vertical: 12),
-                                        child: Row(
-                                          children: [
-                                            // Worker Info
-                                            Expanded(
-                                              flex: 2,
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    attendance.workerName ??
-                                                        'Unknown',
-                                                    style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                        fontSize: 14),
-                                                  ),
-                                                  const SizedBox(height: 4),
-                                                  StatusBadge(
-                                                    label: attendance
-                                                        .status.displayName,
-                                                    type: attendance.status ==
-                                                            AttendanceStatus
-                                                                .fullDay
-                                                        ? StatusType.success
-                                                        : StatusType.warning,
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-
-                                            // Time In
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    'Time In',
-                                                    style: TextStyle(
-                                                        fontSize: 11,
-                                                        color: Theme.of(context)
-                                                            .hintColor),
-                                                  ),
-                                                  const SizedBox(height: 2),
-                                                  Text(
-                                                    attendance.timeIn ?? '-',
-                                                    style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.w500),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-
-                                            // Time Out
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    'Time Out',
-                                                    style: TextStyle(
-                                                        fontSize: 11,
-                                                        color: Theme.of(context)
-                                                            .hintColor),
-                                                  ),
-                                                  const SizedBox(height: 2),
-                                                  Text(
-                                                    attendance.timeOut ?? '-',
-                                                    style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.w500),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-
-                                            // Edit Button
-                                            IconButton(
-                                              icon: const Icon(
-                                                  Icons.edit_outlined,
-                                                  size: 18),
-                                              onPressed: () =>
-                                                  _editAttendance(attendance),
-                                              tooltip: 'Edit',
-                                              color: AppColors.primaryBlue,
-                                            ),
-
-                                            // Delete Button
-                                            IconButton(
-                                              icon: const Icon(
-                                                  Icons.delete_outline,
-                                                  size: 18),
-                                              onPressed: () =>
-                                                  _deleteAttendance(attendance),
-                                              tooltip: 'Delete',
-                                              color: AppColors.error,
-                                            ),
-
-                                            const SizedBox(width: 8),
-
-                                            // Action Button
-                                            if (attendance.timeOut == null)
-                                              TextButton.icon(
-                                                onPressed: () =>
-                                                    _updateTimeOut(attendance),
-                                                icon: const Icon(Icons.logout,
-                                                    size: 16),
-                                                label: const Text('Mark Out'),
-                                                style: TextButton.styleFrom(
-                                                  foregroundColor:
-                                                      AppColors.primaryBlue,
-                                                ),
-                                              )
-                                            else
-                                              const StatusBadge(
-                                                  label: 'Completed',
-                                                  type: StatusType.neutral),
-                                          ],
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                );
-                              },
-                              loading: () => const Center(
-                                  child: CircularProgressIndicator()),
-                              error: (error, stack) => Center(
-                                child: Text('Error: $error',
-                                    style: const TextStyle(
-                                        color: AppColors.error)),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusRadio(AttendanceStatus value, String label) {
-    final isSelected = _selectedStatus == value;
-    return InkWell(
-      onTap: () => setState(() => _selectedStatus = value),
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    if (!widget.enabled) {
+      return Container(
+        height: height,
+        alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: isSelected
-              ? AppColors.primaryBlue.withOpacity(0.1)
-              : Colors.transparent,
-          border: Border.all(
-            color: isSelected
-                ? AppColors.primaryBlue
-                : Theme.of(context).dividerColor,
-          ),
+          color: bgColor,
           borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+              color: Theme.of(context).dividerColor.withOpacity(0.5)),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Radio<AttendanceStatus>(
-              value: value,
-              groupValue: _selectedStatus,
-              onChanged: (val) {
-                if (val != null) setState(() => _selectedStatus = val);
-              },
-              activeColor: AppColors.primaryBlue,
-            ),
-            Text(
-              label,
-              style: TextStyle(
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTimeInput({
-    required String label,
-    required TextEditingController hourController,
-    required TextEditingController minuteController,
-    required DayPeriod period,
-    required ValueChanged<DayPeriod> onPeriodChanged,
-    bool isOptional = false,
-    VoidCallback? onClear,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: Theme.of(context).textTheme.labelLarge),
-            if (isOptional &&
-                onClear != null &&
-                (hourController.text.isNotEmpty ||
-                    minuteController.text.isNotEmpty))
-              InkWell(
-                onTap: onClear,
-                child: Text(
-                  'Clear',
-                  style: TextStyle(
-                      color: AppColors.error,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            // Hour
-            SizedBox(
-              width: 70,
-              child: TextFormField(
-                controller: hourController,
-                keyboardType: TextInputType.number,
-                maxLength: 2,
-                textAlign: TextAlign.center,
-                decoration: const InputDecoration(
-                  hintText: 'HH',
-                  counterText: '',
-                  contentPadding:
-                      EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                ),
-                onChanged: (val) {
-                  if (val.length == 2) {
-                    FocusScope.of(context).nextFocus();
-                  }
-                },
-              ),
-            ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
-              child: Text(':',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            ),
-            // Minute
-            SizedBox(
-              width: 70,
-              child: TextFormField(
-                controller: minuteController,
-                keyboardType: TextInputType.number,
-                maxLength: 2,
-                textAlign: TextAlign.center,
-                decoration: const InputDecoration(
-                  hintText: 'MM',
-                  counterText: '',
-                  contentPadding:
-                      EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            // AM/PM Toggle
-            Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: Theme.of(context).dividerColor),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildPeriodButton(
-                      'AM', DayPeriod.am, period, onPeriodChanged),
-                  Container(
-                      width: 1,
-                      height: 32,
-                      color: Theme.of(context).dividerColor),
-                  _buildPeriodButton(
-                      'PM', DayPeriod.pm, period, onPeriodChanged),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPeriodButton(String text, DayPeriod value, DayPeriod groupValue,
-      ValueChanged<DayPeriod> onChanged) {
-    final isSelected = value == groupValue;
-    return InkWell(
-      onTap: () => onChanged(value),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        color: isSelected
-            ? AppColors.primaryBlue.withOpacity(0.1)
-            : Colors.transparent,
-        child: Text(
-          text,
-          style: TextStyle(
-            color: isSelected ? AppColors.primaryBlue : null,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _markAttendance() async {
-    if (_selectedWorker == null) return;
-
-    setState(() => _isSubmitting = true);
-
-    try {
-      final selectedDate = ref.read(selectedDateProvider);
-
-      String timeInStr = '';
-      if (_timeInHourController.text.isNotEmpty &&
-          _timeInMinuteController.text.isNotEmpty) {
-        final h = int.tryParse(_timeInHourController.text) ?? 0;
-        final m = int.tryParse(_timeInMinuteController.text) ?? 0;
-        final tod = TimeOfDay(
-            hour: _timeInPeriod == DayPeriod.pm && h != 12
-                ? h + 12
-                : (_timeInPeriod == DayPeriod.am && h == 12 ? 0 : h),
-            minute: m);
-        timeInStr = tod.format(context);
-      }
-
-      String? timeOutStr;
-      if (_timeOutHourController.text.isNotEmpty &&
-          _timeOutMinuteController.text.isNotEmpty) {
-        final h = int.tryParse(_timeOutHourController.text) ?? 0;
-        final m = int.tryParse(_timeOutMinuteController.text) ?? 0;
-        final tod = TimeOfDay(
-            hour: _timeOutPeriod == DayPeriod.pm && h != 12
-                ? h + 12
-                : (_timeOutPeriod == DayPeriod.am && h == 12 ? 0 : h),
-            minute: m);
-        timeOutStr = tod.format(context);
-      }
-
-      final attendance = Attendance(
-        id: _editingId,
-        workerId: _selectedWorker!.id!,
-        date: selectedDate,
-        status: _selectedStatus!,
-        timeIn: timeInStr,
-        timeOut: timeOutStr,
+        child:
+            Text("-", style: TextStyle(color: Theme.of(context).disabledColor)),
       );
+    }
 
-      if (_editingId != null) {
-        // UPDATE mode
-        await AttendanceRepository.update(attendance);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Attendance updated successfully'),
-              backgroundColor: AppColors.success,
-              behavior: SnackBarBehavior.floating,
+    return Container(
+      height: height,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: bgColor,
+        border: Border.all(color: borderColor, width: isFocused ? 1.5 : 1.0),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        // mainAxisSize: MainAxisSize.min, // ALLOW TO EXPAND
+        children: [
+          // --- TIME SECTION [ HH : MM ] ---
+          Row(
+            children: [
+              // HH
+              SizedBox(
+                width: 24,
+                child: TextField(
+                  controller: _hhCtrl,
+                  focusNode: _hhFocus,
+                  textAlign: TextAlign.center,
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  maxLength: 2,
+                  cursorColor: AppColors.primaryBlue,
+                  decoration: const InputDecoration(
+                    filled: false,
+                    counterText: "",
+                    border: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    errorBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    hintText: "HH",
+                    hintStyle: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w500),
+                ),
+              ),
+
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 2),
+                child: Text(":",
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey)),
+              ),
+
+              // MM
+              SizedBox(
+                width: 24,
+                child: TextField(
+                  controller: _mmCtrl,
+                  focusNode: _mmFocus,
+                  textAlign: TextAlign.center,
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  maxLength: 2,
+                  cursorColor: AppColors.primaryBlue,
+                  decoration: const InputDecoration(
+                    filled: false,
+                    counterText: "",
+                    border: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    errorBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    hintText: "MM",
+                    hintStyle: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+
+          const Spacer(), // PUSH TO RIGHT
+
+          // --- HORIZONTAL AM/PM TOGGLE ---
+          Container(
+            height: 28,
+            decoration: BoxDecoration(
+              color: Theme.of(context).disabledColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
             ),
-          );
-        }
-      } else {
-        // INSERT mode
-        await AttendanceRepository.insert(attendance);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Attendance marked successfully'),
-              backgroundColor: AppColors.success,
-              behavior: SnackBarBehavior.floating,
+            child: Row(
+              children: [
+                _buildToggleOption(context, "AM"),
+                _buildToggleOption(context, "PM"),
+              ],
             ),
-          );
-        }
-      }
-
-      ref.invalidate(attendanceListProvider(selectedDate));
-      ref.invalidate(dashboardStatsProvider);
-
-      if (mounted) {
-        // Reset form to defaults
-        _clearForm();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', '')),
-            backgroundColor: AppColors.error,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
-    }
-  }
-
-  Future<void> _updateTimeOut(Attendance attendance) async {
-    final timeOut = await showTimePicker(
-      context: context,
-      initialTime: const TimeOfDay(hour: 18, minute: 0),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            dialogBackgroundColor: Theme.of(context).cardColor,
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (timeOut != null && attendance.id != null) {
-      try {
-        final updatedAttendance = attendance.copyWith(
-          timeOut: timeOut.format(context),
-        );
-        await AttendanceRepository.update(updatedAttendance);
-
-        // Refresh the list
-        final selectedDate = ref.read(selectedDateProvider);
-        ref.invalidate(attendanceListProvider(selectedDate));
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Time out updated'),
-                backgroundColor: AppColors.success),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text('Error: $e'), backgroundColor: AppColors.error),
-          );
-        }
-      }
-    }
-  }
-
-  void _editAttendance(Attendance attendance) async {
-    // Find the worker from the list
-    final labourers = await ref.read(labourersProvider.future);
-    final worker = labourers.firstWhere(
-      (w) => w.id == attendance.workerId,
-      orElse: () => Worker(name: 'Unknown', type: WorkerType.labour),
-    );
-
-    if (attendance.timeIn != null) {
-      // 09:30 AM
-      // This parsing heavily depends on format.
-      // Assuming "9:30 AM" or "09:30 AM" format from TimeOfDay.format(context) en_US usually
-      // Ideally we parse properly. But for now let's try to be robust.
-      // Actually simpler: just parse simple 12h format if possible or standard TimeOfDay
-      // If the string is just HH:mm AM/PM
-
-      // Let's rely on standard flutter TimeOfDay parsing from string if we had a helper, but we don't.
-      // Let's implement manually based on "h:mm a" likely format
-
-      // Heuristic parse:
-      try {
-        // Remove NBSP just in case
-        String t = attendance.timeIn!.replaceAll('\u202F', ' ').trim();
-        final spaceParts = t.split(' ');
-        if (spaceParts.length == 2) {
-          final timeParts = spaceParts[0].split(':');
-          final period = spaceParts[1]; // AM or PM
-          if (timeParts.length == 2) {
-            _timeInHourController.text = timeParts[0];
-            _timeInMinuteController.text = timeParts[1];
-            _timeInPeriod =
-                period.toUpperCase() == 'PM' ? DayPeriod.pm : DayPeriod.am;
-          }
-        }
-      } catch (_) {}
-    } else {
-      _timeInHourController.clear();
-      _timeInMinuteController.clear();
-      _timeInPeriod = DayPeriod.am;
-    }
-
-    if (attendance.timeOut != null) {
-      try {
-        String t = attendance.timeOut!.replaceAll('\u202F', ' ').trim();
-        final spaceParts = t.split(' ');
-        if (spaceParts.length == 2) {
-          final timeParts = spaceParts[0].split(':');
-          final period = spaceParts[1]; // AM or PM
-          if (timeParts.length == 2) {
-            _timeOutHourController.text = timeParts[0];
-            _timeOutMinuteController.text = timeParts[1];
-            _timeOutPeriod =
-                period.toUpperCase() == 'PM' ? DayPeriod.pm : DayPeriod.am;
-          }
-        }
-      } catch (_) {}
-    } else {
-      _timeOutHourController.clear();
-      _timeOutMinuteController.clear();
-      _timeOutPeriod = DayPeriod.pm;
-    }
-
-    setState(() {
-      _editingId = attendance.id;
-      _selectedWorker = worker.id != null ? worker : null;
-      _selectedStatus = attendance.status;
-    });
-  }
-
-  void _cancelEdit() {
-    _clearForm();
-  }
-
-  Future<void> _deleteAttendance(Attendance attendance) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Attendance'),
-        content: Text(
-            'Are you sure you want to delete attendance for ${attendance.workerName}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            child: const Text('Delete'),
           ),
         ],
       ),
     );
-
-    if (confirm == true && attendance.id != null) {
-      try {
-        await AttendanceRepository.delete(attendance.id!);
-
-        // If deleting the item currently being edited, clear the form
-        if (_editingId == attendance.id) {
-          _clearForm();
-        }
-
-        final selectedDate = ref.read(selectedDateProvider);
-        ref.invalidate(attendanceListProvider(selectedDate));
-        ref.invalidate(dashboardStatsProvider);
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Attendance deleted successfully'),
-              backgroundColor: AppColors.success,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text('Error: $e'), backgroundColor: AppColors.error),
-          );
-        }
-      }
-    }
   }
 
-  void _clearForm() {
-    setState(() {
-      _editingId = null;
-      _selectedWorker = null;
-      _selectedStatus = null;
-      _timeInHourController.clear();
-      _timeInMinuteController.clear();
-      _timeInPeriod = DayPeriod.am;
-      _timeOutHourController.clear();
-      _timeOutMinuteController.clear();
-      _timeOutPeriod = DayPeriod.pm;
-    });
+  Widget _buildToggleOption(BuildContext context, String label) {
+    final bool isSelected = widget.data.period == label;
+    final activeColor = AppColors.primaryBlue;
+    final activeText = Colors.white;
+    final inactiveText = Theme.of(context).hintColor;
+
+    return InkWell(
+      onTap: () => _setPeriod(label),
+      canRequestFocus: true, // Participate in tab traversal
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isSelected ? activeColor : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: isSelected ? activeText : inactiveText,
+          ),
+        ),
+      ),
+    );
   }
 }

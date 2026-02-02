@@ -31,7 +31,7 @@ class DatabaseService {
       // Open database
       _database = await openDatabase(
         databasePath,
-        version: 17,
+        version: 18,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
         onConfigure: _onConfigure,
@@ -587,6 +587,69 @@ class DatabaseService {
         print('Migration to v16 (Fix Schema Integrity) completed successfully');
       } catch (e) {
         print('Error in version 16 migration: $e');
+      }
+    }
+
+    if (oldVersion < 17) {
+      // Version 17: Recreate preferences table for Company Details (Structured instead of KV)
+      try {
+        await db.transaction((txn) async {
+          // Drop old KV preferences table
+          await txn.execute('DROP TABLE IF EXISTS preferences');
+
+          // Create new structured table
+          await txn.execute('''
+            CREATE TABLE preferences (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              company_name TEXT,
+              address TEXT,
+              phone TEXT,
+              email TEXT,
+              created_at TEXT DEFAULT (datetime('now'))
+            )
+          ''');
+
+          // Insert default empty row
+          await txn.execute('''
+            INSERT INTO preferences (company_name, address, phone, email)
+            VALUES ('', '', '', '')
+          ''');
+        });
+        print(
+            'Migration to v17 (Preferences Table Restructure) completed successfully');
+      } catch (e) {
+        print('Error in version 17 migration: $e');
+      }
+    }
+
+    if (oldVersion < 18) {
+      // Version 18: Force specific migration for Preferences table if v17 failed or didn't run properly
+      try {
+        await db.transaction((txn) async {
+          // Check if table exists and has correct columns, or just nuclear option to be safe
+          // We will recreate it to be absolutely sure
+          await txn.execute('DROP TABLE IF EXISTS preferences');
+
+          await txn.execute('''
+            CREATE TABLE preferences (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              company_name TEXT,
+              address TEXT,
+              phone TEXT,
+              email TEXT,
+              created_at TEXT DEFAULT (datetime('now'))
+            )
+          ''');
+
+          await txn.execute('''
+            INSERT INTO preferences (company_name, address, phone, email)
+            VALUES ('', '', '', '')
+          ''');
+        });
+        print(
+            'Migration to v18 (Force Preferences Schema) completed successfully');
+      } catch (e) {
+        print('Error in version 18 migration: $e');
       }
     }
   }

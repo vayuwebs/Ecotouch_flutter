@@ -36,8 +36,8 @@ class RawMaterialsManagement extends ConsumerWidget {
                   Text(
                     'Define raw materials and their properties',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).textTheme.bodyMedium?.color,
-                    ),
+                          color: Theme.of(context).textTheme.bodyMedium?.color,
+                        ),
                   ),
                 ],
               ),
@@ -60,13 +60,22 @@ class RawMaterialsManagement extends ConsumerWidget {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.inventory_2_outlined, size: 64, color: Theme.of(context).iconTheme.color?.withOpacity(0.5)),
+                        Icon(Icons.inventory_2_outlined,
+                            size: 64,
+                            color: Theme.of(context)
+                                .iconTheme
+                                .color
+                                ?.withOpacity(0.5)),
                         const SizedBox(height: 16),
                         Text(
                           'No raw materials found',
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: Theme.of(context).textTheme.bodyMedium?.color,
-                          ),
+                          style:
+                              Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.color,
+                                  ),
                         ),
                         const SizedBox(height: 16),
                         OutlinedButton.icon(
@@ -93,31 +102,41 @@ class RawMaterialsManagement extends ConsumerWidget {
                         ],
                         rows: materials.map((material) {
                           return DataRow(cells: [
-                            DataCell(Text(material.name, style: const TextStyle(fontWeight: FontWeight.w500))),
+                            DataCell(Text(material.name,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w500))),
                             DataCell(Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: Theme.of(context).brightness == Brightness.dark 
-                                    ? AppColors.darkSurfaceVariant 
+                                color: Theme.of(context).brightness ==
+                                        Brightness.dark
+                                    ? AppColors.darkSurfaceVariant
                                     : AppColors.lightSurfaceVariant,
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: Text(material.unit, style: const TextStyle(fontSize: 12)),
+                              child: Text(material.unit,
+                                  style: const TextStyle(fontSize: 12)),
                             )),
-                            DataCell(Text('${material.minAlertLevel} ${material.unit}')),
+                            DataCell(Text(
+                                '${material.minAlertLevel} ${material.unit}')),
                             DataCell(
                               Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
                                     icon: const Icon(Icons.edit, size: 18),
-                                    onPressed: () => _showRawMaterialDialog(context, ref, material: material),
+                                    onPressed: () => _showRawMaterialDialog(
+                                        context, ref,
+                                        material: material),
                                     tooltip: 'Edit',
                                     color: AppColors.primaryBlue,
                                   ),
                                   IconButton(
-                                    icon: const Icon(Icons.delete_outline, size: 18),
-                                    onPressed: () => _deleteMaterial(context, ref, material),
+                                    icon: const Icon(Icons.delete_outline,
+                                        size: 18),
+                                    onPressed: () =>
+                                        _deleteMaterial(context, ref, material),
                                     tooltip: 'Delete',
                                     color: AppColors.error,
                                   ),
@@ -133,7 +152,8 @@ class RawMaterialsManagement extends ConsumerWidget {
               },
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (error, stack) => Center(
-                child: Text('Error: $error', style: const TextStyle(color: AppColors.error)),
+                child: Text('Error: $error',
+                    style: const TextStyle(color: AppColors.error)),
               ),
             ),
           ),
@@ -142,7 +162,8 @@ class RawMaterialsManagement extends ConsumerWidget {
     );
   }
 
-  Future<void> _showRawMaterialDialog(BuildContext context, WidgetRef ref, {RawMaterial? material}) async {
+  Future<void> _showRawMaterialDialog(BuildContext context, WidgetRef ref,
+      {RawMaterial? material}) async {
     await showDialog(
       context: context,
       builder: (context) => _RawMaterialDialog(material: material),
@@ -152,7 +173,8 @@ class RawMaterialsManagement extends ConsumerWidget {
     // ref.invalidate(rawMaterialsProvider); // This is done inside dialog
   }
 
-  Future<void> _deleteMaterial(BuildContext context, WidgetRef ref, RawMaterial material) async {
+  Future<void> _deleteMaterial(
+      BuildContext context, WidgetRef ref, RawMaterial material) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -202,7 +224,8 @@ class _RawMaterialDialogState extends ConsumerState<_RawMaterialDialog> {
     super.initState();
     _nameController = TextEditingController(text: widget.material?.name);
     _unitController = TextEditingController(text: widget.material?.unit);
-    _minAlertController = TextEditingController(text: widget.material?.minAlertLevel.toString());
+    _minAlertController =
+        TextEditingController(text: widget.material?.minAlertLevel.toString());
   }
 
   @override
@@ -216,7 +239,7 @@ class _RawMaterialDialogState extends ConsumerState<_RawMaterialDialog> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     setState(() => _isSaving = true);
 
     try {
@@ -230,7 +253,7 @@ class _RawMaterialDialogState extends ConsumerState<_RawMaterialDialog> {
       if (widget.material == null) {
         // Create
         final id = await RawMaterialRepository.insert(material);
-        
+
         // Handle Initial Stock
         final initialStock = double.tryParse(_initialStockController.text) ?? 0;
         if (initialStock > 0) {
@@ -238,9 +261,9 @@ class _RawMaterialDialogState extends ConsumerState<_RawMaterialDialog> {
           await DatabaseService.insert('inward', {
             'raw_material_id': id,
             'date': DateTime.now().toIso8601String(),
-            'package_size': 1,
-            'quantity': initialStock,
-            'total': initialStock,
+            'bag_size': 1.0, // Fixed: package_size -> bag_size
+            'bag_count': initialStock, // Fixed: quantity -> bag_count
+            'total_weight': initialStock, // Fixed: total -> total_weight
             'notes': 'Opening Stock',
           });
         }
@@ -248,15 +271,27 @@ class _RawMaterialDialogState extends ConsumerState<_RawMaterialDialog> {
         // Update
         await RawMaterialRepository.update(material);
       }
-      
+
       ref.invalidate(rawMaterialsProvider);
       ref.invalidate(dashboardStatsProvider);
-      
+
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
+        String message = 'Error saving material';
+        if (e.toString().contains('UNIQUE constraint failed') ||
+            e.toString().contains('2067')) {
+          message = 'Material "${_nameController.text}" already exists';
+        } else {
+          message = 'Error: $e';
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error),
+          SnackBar(
+            content: Text(message),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     } finally {
@@ -273,7 +308,8 @@ class _RawMaterialDialogState extends ConsumerState<_RawMaterialDialog> {
       child: Focus(
         autofocus: true,
         child: AlertDialog(
-          title: Text(widget.material == null ? 'Add Material' : 'Edit Material'),
+          title:
+              Text(widget.material == null ? 'Add Material' : 'Edit Material'),
           content: Form(
             key: _formKey,
             child: SingleChildScrollView(
@@ -282,8 +318,10 @@ class _RawMaterialDialogState extends ConsumerState<_RawMaterialDialog> {
                 children: [
                   TextFormField(
                     controller: _nameController,
-                    decoration: const InputDecoration(labelText: 'Material Name *'),
-                    validator: (value) => Validators.required(value, fieldName: 'Name'),
+                    decoration:
+                        const InputDecoration(labelText: 'Material Name *'),
+                    validator: (value) =>
+                        Validators.required(value, fieldName: 'Name'),
                     autofocus: true,
                   ),
                   const SizedBox(height: 16),
@@ -296,7 +334,8 @@ class _RawMaterialDialogState extends ConsumerState<_RawMaterialDialog> {
                             labelText: 'Unit *',
                             hintText: 'e.g. kg, ltr, pcs',
                           ),
-                          validator: (value) => Validators.required(value, fieldName: 'Unit'),
+                          validator: (value) =>
+                              Validators.required(value, fieldName: 'Unit'),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -304,7 +343,13 @@ class _RawMaterialDialogState extends ConsumerState<_RawMaterialDialog> {
                       PopupMenuButton<String>(
                         icon: const Icon(Icons.arrow_drop_down),
                         onSelected: (val) => _unitController.text = val,
-                        itemBuilder: (context) => ['kg', 'ltr', 'pcs', 'boxes', 'tons']
+                        itemBuilder: (context) => [
+                          'kg',
+                          'ltr',
+                          'pcs',
+                          'boxes',
+                          'tons'
+                        ]
                             .map((u) => PopupMenuItem(value: u, child: Text(u)))
                             .toList(),
                       ),
@@ -318,7 +363,8 @@ class _RawMaterialDialogState extends ConsumerState<_RawMaterialDialog> {
                       helperText: 'Alert when stock falls below',
                     ),
                     keyboardType: TextInputType.number,
-                    validator: (value) => Validators.nonNegativeNumber(value, fieldName: 'Alert Level'),
+                    validator: (value) => Validators.nonNegativeNumber(value,
+                        fieldName: 'Alert Level'),
                   ),
                   if (widget.material == null) ...[
                     const SizedBox(height: 16),
@@ -332,7 +378,8 @@ class _RawMaterialDialogState extends ConsumerState<_RawMaterialDialog> {
                         prefixIcon: Icon(Icons.inventory_2_outlined),
                       ),
                       keyboardType: TextInputType.number,
-                      validator: (value) => Validators.nonNegativeNumber(value, fieldName: 'Initial Stock'),
+                      validator: (value) => Validators.nonNegativeNumber(value,
+                          fieldName: 'Initial Stock'),
                     ),
                   ],
                 ],
@@ -346,8 +393,11 @@ class _RawMaterialDialogState extends ConsumerState<_RawMaterialDialog> {
             ),
             ElevatedButton(
               onPressed: _isSaving ? null : _save,
-              child: _isSaving 
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+              child: _isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2))
                   : const Text('Save'),
             ),
           ],

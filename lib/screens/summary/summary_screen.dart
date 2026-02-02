@@ -6,11 +6,10 @@ import 'widgets/production_report_tab.dart';
 import 'widgets/inward_report_tab.dart';
 import 'widgets/outward_report_tab.dart';
 import '../../providers/global_providers.dart';
-import '../dashboard/dashboard_screen.dart';
 import '../attendance/attendance_screen.dart';
-import '../production/production_screen.dart';
-import '../inward/inward_screen.dart';
-import '../outward/outward_screen.dart';
+import '../../providers/production_providers.dart';
+import '../../providers/inward_providers.dart';
+import '../../providers/outward_providers.dart';
 
 class SummaryScreen extends ConsumerStatefulWidget {
   const SummaryScreen({super.key});
@@ -19,7 +18,8 @@ class SummaryScreen extends ConsumerStatefulWidget {
   ConsumerState<SummaryScreen> createState() => _SummaryScreenState();
 }
 
-class _SummaryScreenState extends ConsumerState<SummaryScreen> with SingleTickerProviderStateMixin {
+class _SummaryScreenState extends ConsumerState<SummaryScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
   final List<String> _tabs = [
@@ -50,14 +50,15 @@ class _SummaryScreenState extends ConsumerState<SummaryScreen> with SingleTicker
         children: [
           // Header
           Padding(
-            padding: const EdgeInsets.only(left: 32, right: 32, top: 32, bottom: 20),
+            padding:
+                const EdgeInsets.only(left: 32, right: 32, top: 32, bottom: 20),
             child: Row(
               children: [
                 Text(
                   'Summary: Production Reports', // Dynamic based on tab?
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
                 const Spacer(),
                 // Global Date/Action controls could go here
@@ -70,7 +71,7 @@ class _SummaryScreenState extends ConsumerState<SummaryScreen> with SingleTicker
                       onPressed: () {
                         // Invalidate global stats
                         ref.invalidate(dashboardStatsProvider);
-                        
+
                         // Invalidate list providers for the current date
                         final selectedDate = ref.read(selectedDateProvider);
                         ref.invalidate(attendanceListProvider(selectedDate));
@@ -79,12 +80,12 @@ class _SummaryScreenState extends ConsumerState<SummaryScreen> with SingleTicker
                         ref.invalidate(outwardListProvider(selectedDate));
 
                         ScaffoldMessenger.of(context).showSnackBar(
-                           const SnackBar(
-                             content: Text('Reports refreshed'), 
-                             behavior: SnackBarBehavior.floating,
-                             duration: Duration(milliseconds: 1000),
-                           ),
-                         );
+                          const SnackBar(
+                            content: Text('Reports refreshed'),
+                            behavior: SnackBarBehavior.floating,
+                            duration: Duration(milliseconds: 1000),
+                          ),
+                        );
                       },
                     ),
                   ],
@@ -105,7 +106,8 @@ class _SummaryScreenState extends ConsumerState<SummaryScreen> with SingleTicker
               padding: const EdgeInsets.all(32),
               child: TabBarView(
                 controller: _tabController,
-                physics: const NeverScrollableScrollPhysics(), // Disable swipe to avoid conflict with matrices/tables
+                physics:
+                    const NeverScrollableScrollPhysics(), // Disable swipe to avoid conflict with matrices/tables
                 children: const [
                   AttendanceReportTab(),
                   ProductionReportTab(),

@@ -5,6 +5,10 @@ import '../../theme/app_theme.dart';
 import '../../providers/global_providers.dart';
 import '../../widgets/stat_card.dart';
 import 'widgets/production_graph_widget.dart';
+import '../attendance/attendance_screen.dart';
+import '../production/production_screen.dart';
+import '../stock_level/inventory_screen.dart';
+import '../main/tally_page_wrapper.dart';
 
 // Providers for dashboard data
 // Providers for dashboard data - Moved to global_providers.dart
@@ -32,17 +36,22 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                   const Spacer(),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).brightness == Brightness.dark 
-                          ? AppColors.darkSurfaceVariant 
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? AppColors.darkSurfaceVariant
                           : AppColors.lightSurfaceVariant,
-                      borderRadius: BorderRadius.circular(AppTheme.borderRadius),
+                      borderRadius:
+                          BorderRadius.circular(AppTheme.borderRadius),
                       border: Border.all(color: Theme.of(context).dividerColor),
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.calendar_today, size: 16, color: Theme.of(context).textTheme.bodyMedium?.color),
+                        Icon(Icons.calendar_today,
+                            size: 16,
+                            color:
+                                Theme.of(context).textTheme.bodyMedium?.color),
                         const SizedBox(width: 8),
                         Text(
                           'Today',
@@ -53,9 +62,9 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                 ],
               ),
-              
+
               const SizedBox(height: 24),
-              
+
               // Stat Cards
               Row(
                 children: [
@@ -63,12 +72,20 @@ class DashboardScreen extends ConsumerWidget {
                     child: StatCard(
                       icon: Icons.people_outline,
                       iconColor: AppColors.primaryBlue,
-                      iconBackgroundColor: Theme.of(context).brightness == Brightness.dark
-                          ? AppColors.iconBackgroundBlue
-                          : AppColors.lightIconBackgroundBlue,
+                      iconBackgroundColor:
+                          Theme.of(context).brightness == Brightness.dark
+                              ? AppColors.iconBackgroundBlue
+                              : AppColors.lightIconBackgroundBlue,
                       title: 'Workers Present',
                       value: stats['workersPresent'].toString(),
                       subtitle: 'Active today',
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const AttendanceScreen()),
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -76,61 +93,113 @@ class DashboardScreen extends ConsumerWidget {
                     child: StatCard(
                       icon: Icons.factory_outlined,
                       iconColor: AppColors.success,
-                      iconBackgroundColor: Theme.of(context).brightness == Brightness.dark
-                          ? AppColors.iconBackgroundGreen
-                          : AppColors.lightIconBackgroundGreen,
+                      iconBackgroundColor:
+                          Theme.of(context).brightness == Brightness.dark
+                              ? AppColors.iconBackgroundGreen
+                              : AppColors.lightIconBackgroundGreen,
                       title: 'Batches Produced',
                       value: stats['batchesProduced'].toString(),
                       subtitle: 'Units',
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const ProductionScreen()),
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
                     child: StatCard(
                       icon: Icons.inventory_2_outlined,
-                      iconColor: stats['rawMaterialsLow'] > 0 ? AppColors.warning : AppColors.success,
-                      iconBackgroundColor: Theme.of(context).brightness == Brightness.dark
-                          ? (stats['rawMaterialsLow'] > 0 ? AppColors.iconBackgroundOrange : AppColors.iconBackgroundGreen)
-                          : (stats['rawMaterialsLow'] > 0 ? AppColors.lightIconBackgroundOrange : AppColors.lightIconBackgroundGreen),
+                      iconColor: stats['rawMaterialsLow'] > 0
+                          ? AppColors.warning
+                          : AppColors.success,
+                      iconBackgroundColor:
+                          Theme.of(context).brightness == Brightness.dark
+                              ? (stats['rawMaterialsLow'] > 0
+                                  ? AppColors.iconBackgroundOrange
+                                  : AppColors.iconBackgroundGreen)
+                              : (stats['rawMaterialsLow'] > 0
+                                  ? AppColors.lightIconBackgroundOrange
+                                  : AppColors.lightIconBackgroundGreen),
                       title: 'Raw Material',
-                      value: stats['rawMaterialsLow'] == 0 ? 'Healthy' : stats['rawMaterialsLow'].toString(),
-                      subtitle: stats['rawMaterialsLow'] > 0 ? 'Low stock items' : 'Stock levels sufficient',
+                      value: stats['rawMaterialsLow'] == 0
+                          ? 'Healthy'
+                          : stats['rawMaterialsLow'].toString(),
+                      subtitle: stats['rawMaterialsLow'] > 0
+                          ? 'Low stock items'
+                          : 'Stock levels sufficient',
+                      onTap: () {
+                        ref.read(stockViewTypeProvider.notifier).state =
+                            StockViewType.rawMaterials;
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const TallyPageWrapper(
+                                  title: 'Inventory',
+                                  child: InventoryScreen())),
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
                     child: StatCard(
                       icon: Icons.inventory_outlined,
-                      iconColor: stats['productsLow'] > 0 ? AppColors.warning : AppColors.success,
-                      iconBackgroundColor: Theme.of(context).brightness == Brightness.dark
-                          ? (stats['productsLow'] > 0 ? AppColors.iconBackgroundOrange : AppColors.iconBackgroundGreen)
-                          : (stats['productsLow'] > 0 ? AppColors.lightIconBackgroundOrange : AppColors.lightIconBackgroundGreen),
+                      iconColor: stats['productsLow'] > 0
+                          ? AppColors.warning
+                          : AppColors.success,
+                      iconBackgroundColor:
+                          Theme.of(context).brightness == Brightness.dark
+                              ? (stats['productsLow'] > 0
+                                  ? AppColors.iconBackgroundOrange
+                                  : AppColors.iconBackgroundGreen)
+                              : (stats['productsLow'] > 0
+                                  ? AppColors.lightIconBackgroundOrange
+                                  : AppColors.lightIconBackgroundGreen),
                       title: 'Product Stock',
-                      value: stats['productsLow'] == 0 ? 'Healthy' : stats['productsLow'].toString(),
-                      subtitle: stats['productsLow'] > 0 ? 'Low stock items' : 'Stock levels sufficient',
+                      value: stats['productsLow'] == 0
+                          ? 'Healthy'
+                          : stats['productsLow'].toString(),
+                      subtitle: stats['productsLow'] > 0
+                          ? 'Low stock items'
+                          : 'Stock levels sufficient',
+                      onTap: () {
+                        ref.read(stockViewTypeProvider.notifier).state =
+                            StockViewType.products;
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const TallyPageWrapper(
+                                  title: 'Inventory',
+                                  child: InventoryScreen())),
+                        );
+                      },
                     ),
                   ),
                 ],
               ),
-              
+
               const SizedBox(height: 32),
-              
+
               // Production Graph (Replaces Stock Alerts)
               // Production Graph
               SizedBox(
                 height: 400,
-                child: ProductionGraphWidget(dailyStats: stats['productionHistory']),
+                child: ProductionGraphWidget(
+                    dailyStats: stats['productionHistory']),
               ),
             ],
           ),
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, stack) => Center(
-            child: Text('Error: $error', style: const TextStyle(color: AppColors.error)),
+            child: Text('Error: $error',
+                style: const TextStyle(color: AppColors.error)),
           ),
         ),
       ),
     );
   }
-
-
 }

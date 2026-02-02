@@ -111,7 +111,7 @@ class StatusBadge extends StatelessWidget {
         children: [
           if (showIcon) ...[
             Icon(
-              icon!,
+              icon,
               size: (fontSize ?? 12) + 2,
               color: textColor,
             ),
