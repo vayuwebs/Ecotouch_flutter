@@ -334,203 +334,223 @@ class AttendanceReportTab extends ConsumerWidget {
   Widget _buildAttendanceMatrix(BuildContext context,
       List<Map<String, dynamic>> rawData, DateTimeRange range) {
     // Process data into a worker-date map
-    final Map<int, Map<String, String>> workerAttendance = {};
     final Map<int, String> workerNames = {};
-    final Map<int, int> workerTotalPresent = {};
+    final Map<int, int> presentCounts = {};
+    final Map<int, int> halfDayCounts = {};
 
     for (var row in rawData) {
       final workerId = row['worker_id'] as int;
       final workerName = row['worker_name'] as String? ?? 'Unknown';
-      final dateStr =
-          (row['date'] as String).split('T')[0]; // Format: YYYY-MM-DD
       final status = row['status'] as String;
 
       workerNames[workerId] = workerName;
 
-      if (!workerAttendance.containsKey(workerId)) {
-        workerAttendance[workerId] = {};
-        workerTotalPresent[workerId] = 0;
-      }
-
-      workerAttendance[workerId]![dateStr] = status;
       if (status == 'full_day') {
-        workerTotalPresent[workerId] = (workerTotalPresent[workerId] ?? 0) + 1;
+        presentCounts[workerId] = (presentCounts[workerId] ?? 0) + 1;
+      } else if (status == 'half_day') {
+        halfDayCounts[workerId] = (halfDayCounts[workerId] ?? 0) + 1;
       }
-      // Half day logic could be +0.5 if required
     }
 
-    // Generate list of days in range
-    final daysCount = range.end.difference(range.start).inDays + 1;
-    final days = List.generate(
-        daysCount, (index) => range.start.add(Duration(days: index)));
-
-    // For large ranges (Monthly/Yearly), we might need to handle horizontal scrolling better
-    // But for now, we'll try to fit or let it overflow if using scroll view?
-    // Using SingleChildScrollView horizontally for the matrix part if needed.
+    // Calculate total days in range
+    final totalDays = range.end.difference(range.start).inDays + 1;
 
     return Column(
       children: [
-        // Header Row - Wrapped in ScrollView sync? simpler to just make the whole table scrollable horizontally
-        // But headers need to stay fixed if optimizing. For simplicity now given requirements:
-        // We will make the central part scrollable horizontally.
+        // Header Row
+        Container(
+          height: 50,
+          padding: const EdgeInsets.symmetric(horizontal: 0),
+          decoration: BoxDecoration(
+            border: Border(
+                bottom: BorderSide(
+                    color: Theme.of(context).dividerColor.withOpacity(0.1))),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                  flex: 3,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 24),
+                    child: Text('WORKER NAME',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.color
+                                ?.withOpacity(0.7))),
+                  )),
+              Expanded(
+                  flex: 1,
+                  child: Center(
+                      child: Text('PRESENT',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.color
+                                  ?.withOpacity(0.7))))),
+              Expanded(
+                  flex: 1,
+                  child: Center(
+                      child: Text('HALF-DAY',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.color
+                                  ?.withOpacity(0.7))))),
+              Expanded(
+                  flex: 1,
+                  child: Center(
+                      child: Text('ABSENT',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.color
+                                  ?.withOpacity(0.7))))),
+              Expanded(
+                  flex: 2, // Slightly wider for "Total Present"
+                  child: Center(
+                      child: Text('TOTAL PRESENT',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.color
+                                  ?.withOpacity(0.7))))),
+            ],
+          ),
+        ),
 
+        // List
         Expanded(
-          child: Scrollbar(
-            thumbVisibility: true,
-            trackVisibility: true,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: 280.0 +
-                    (days.length *
-                        60.0), // Fixed width: 200(Name) + 80(Total) + days*60
-                child: Column(
+          child: ListView.builder(
+            itemCount: workerNames.length,
+            itemBuilder: (context, index) {
+              final workerId = workerNames.keys.elementAt(index);
+              final name = workerNames[workerId]!;
+              final present = presentCounts[workerId] ?? 0;
+              final halfDay = halfDayCounts[workerId] ?? 0;
+              // Absent = Total Possible Days - (Present + Half Day)
+              // Note: This logic assumes everyday is a working day.
+              final attendedDays = present +
+                  halfDay; // Treat half day as attendance for "days shown up"? Or strict time?
+              // User request: "total present(present+half day)". So that's the last column.
+              // Absent should probably correspond to days NOT in status.
+              final absent = totalDays - (present + halfDay);
+              // Note: If absent is negative (e.g. data outside range? shouldn't happen due to SQL), clamp to 0.
+              final safeAbsent = absent < 0 ? 0 : absent;
+
+              final totalPresentScore =
+                  present + halfDay; // "total present(present+half day)"
+
+              return Container(
+                height: 50,
+                decoration: BoxDecoration(
+                  border: Border(
+                      bottom: BorderSide(
+                          color: Theme.of(context)
+                              .dividerColor
+                              .withOpacity(0.05))),
+                ),
+                child: Row(
                   children: [
-                    Container(
-                      height: 50,
-                      padding: const EdgeInsets.symmetric(horizontal: 0),
-                      decoration: BoxDecoration(
-                        border: Border(
-                            bottom: BorderSide(
-                                color: Theme.of(context)
-                                    .dividerColor
-                                    .withOpacity(0.1))),
-                      ),
-                      child: Row(
-                        children: [
-                          const SizedBox(
-                              width: 200,
-                              child: Padding(
-                                padding: EdgeInsets.only(left: 24),
-                                child: Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: Text('WORKER NAME',
-                                        style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold))),
-                              )),
-                          ...days.map((date) => SizedBox(
-                                width: 60,
-                                child: Center(
-                                  child: Text(
-                                    '${date.day}/${date.month.toString().padLeft(2, '0')}',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      color: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium
-                                          ?.color
-                                          ?.withOpacity(0.7),
-                                    ),
-                                  ),
-                                ),
-                              )),
-                          const SizedBox(
-                              width: 80,
-                              child: Center(
-                                  child: Text('TOTAL',
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold)))),
-                        ],
+                    Expanded(
+                      flex: 3,
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 24),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 14,
+                              backgroundColor: Theme.of(context)
+                                  .dividerColor
+                                  .withOpacity(0.1),
+                              child: Text(
+                                name.substring(0, 2).toUpperCase(),
+                                style: TextStyle(
+                                    fontSize: 10,
+                                    color: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.color),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(name,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w500)),
+                          ],
+                        ),
                       ),
                     ),
                     Expanded(
-                      child: ListView.builder(
-                        itemCount: workerNames.length,
-                        itemBuilder: (context, index) {
-                          final workerId = workerNames.keys.elementAt(index);
-                          final name = workerNames[workerId]!;
-                          final attendance = workerAttendance[workerId] ?? {};
-                          final total = workerTotalPresent[workerId] ?? 0;
-
-                          return Container(
-                            height: 50,
-                            decoration: BoxDecoration(
-                              border: Border(
-                                  bottom: BorderSide(
-                                      color: Theme.of(context)
-                                          .dividerColor
-                                          .withOpacity(0.05))),
-                            ),
-                            child: Row(
-                              children: [
-                                SizedBox(
-                                  width: 200,
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(left: 24),
-                                    child: Row(
-                                      children: [
-                                        CircleAvatar(
-                                          radius: 14,
-                                          backgroundColor: Theme.of(context)
-                                              .dividerColor
-                                              .withOpacity(0.1),
-                                          child: Text(
-                                            name.substring(0, 2).toUpperCase(),
-                                            style: TextStyle(
-                                                fontSize: 10,
-                                                color: Theme.of(context)
-                                                    .textTheme
-                                                    .bodyMedium
-                                                    ?.color),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Text(name,
-                                            style: const TextStyle(
-                                                fontWeight: FontWeight.w500)),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                ...days.map((date) {
-                                  final dateStr = app_date_utils.DateUtils
-                                      .formatDateForDatabase(date);
-                                  final status = attendance[dateStr];
-                                  return SizedBox(
-                                    width: 60,
-                                    child: Center(
-                                        child:
-                                            _buildStatusBadge(context, status)),
-                                  );
-                                }),
-                                SizedBox(
-                                  width: 80,
-                                  child: Center(
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 12, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Theme.of(context)
-                                            .dividerColor
-                                            .withOpacity(0.05),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Text(
-                                        '$total',
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 13),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                      flex: 1,
+                      child: Center(
+                        child: Text('$present',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.success)),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 1,
+                      child: Center(
+                        child: Text('$halfDay',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.warning)),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 1,
+                      child: Center(
+                        child: Text('$safeAbsent',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.error)),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .dividerColor
+                                .withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '$totalPresentScore',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ),
 
-        // Footer (Active Workers count) - No Navigation
+        // Footer (Active Workers count)
         Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
@@ -543,7 +563,7 @@ class AttendanceReportTab extends ConsumerWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('TOTAL ACTIVE WORKERS',
+                  Text('TOTAL WORKERS',
                       style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
@@ -558,79 +578,11 @@ class AttendanceReportTab extends ConsumerWidget {
                           fontSize: 20, fontWeight: FontWeight.bold)),
                 ],
               ),
-              const SizedBox(width: 48),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('AVG ATTENDANCE',
-                      style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
-                              ?.color
-                              ?.withOpacity(0.7))),
-                  const SizedBox(height: 4),
-                  const Text('92.4%',
-                      style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.success)),
-                ],
-              ),
+              // We could add aggregates for total present days etc if needed
             ],
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildStatusBadge(BuildContext context, String? status) {
-    if (status == null) {
-      return Container(
-        width: 28,
-        height: 28,
-        alignment: Alignment.center,
-        child:
-            Text('—', style: TextStyle(color: Theme.of(context).disabledColor)),
-      );
-    }
-
-    Color bgColor;
-    Color textColor;
-    String text;
-
-    if (status == 'full_day') {
-      bgColor = AppColors.success.withOpacity(0.1);
-      textColor = AppColors.success;
-      text = 'P';
-    } else if (status == 'half_day') {
-      bgColor = AppColors.warning.withOpacity(0.1);
-      textColor = AppColors.warning;
-      text = 'H';
-    } else {
-      bgColor = AppColors.error.withOpacity(0.1);
-      textColor = AppColors.error;
-      text = 'A';
-    }
-
-    return Container(
-      width: 28,
-      height: 28,
-      decoration: BoxDecoration(
-        color: bgColor,
-        shape: BoxShape.circle,
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        text,
-        style: TextStyle(
-          color: textColor,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-      ),
     );
   }
 }

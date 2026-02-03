@@ -87,149 +87,109 @@ class StockCalculationService {
     return stock;
   }
 
-  /// Calculate raw material stock grouped by bag size
+  /// Calculate raw material stock grouped by specific Inward Batch (Strict Allocation)
   static Future<List<StockByBagSize>> calculateRawMaterialStockByBagSize(
       DateTime upToDate) async {
     final dateStr = app_date_utils.DateUtils.formatDateForDatabase(upToDate);
 
-    // 1. Get inward entries grouped by material and bag size
+    // 1. Get all Inward Entries (Treating each entry as a distinct batch)
     final inwardResults = await DatabaseService.rawQuery('''
       SELECT 
+        i.id as inward_id,
         i.raw_material_id,
         rm.name as material_name,
         rm.unit,
         i.bag_size,
-        SUM(i.bag_count) as total_bags,
-        SUM(i.total_weight) as total_weight
+        i.bag_count as initial_bags,
+        i.total_weight as initial_weight,
+        i.date as inward_date
       FROM inward i
       INNER JOIN raw_materials rm ON i.raw_material_id = rm.id
       WHERE i.date <= ?
-      GROUP BY i.raw_material_id, i.bag_size
-      ORDER BY rm.name, i.bag_size
+      ORDER BY i.date ASC, i.id ASC
     ''', [dateStr]);
 
-    // 2. Get production usage grouped by material AND bag size
+    print('DEBUG: StockCalc - Date: $dateStr');
+    print('DEBUG: StockCalc - Inward Rows Found: ${inwardResults.length}');
+
+    // 2. Get Production Usage grouped by Inward Source (Strict Mapping)
     final usageResults = await DatabaseService.rawQuery('''
       SELECT 
-        prm.raw_material_id, 
-        prm.bag_size, 
-        SUM(prm.quantity_used) as total_used
+        prm.inward_entry_id,
+        SUM(prm.quantity_used) as total_weight_used,
+        SUM(CASE WHEN prm.bag_size IS NOT NULL THEN prm.quantity_used ELSE 0 END) as total_bags_implied_weight
       FROM production_raw_materials prm
       INNER JOIN production p ON prm.production_id = p.id
-      WHERE p.date <= ?
-      GROUP BY prm.raw_material_id, prm.bag_size
+      WHERE p.date <= ? AND prm.inward_entry_id IS NOT NULL
+      GROUP BY prm.inward_entry_id
     ''', [dateStr]);
 
-    // Organize usage:
-    // explicitUsageMap: {materialId: {bagSize: usedAmount}}
-    // legacyUsageMap: {materialId: usedAmount} (where bag_size is null)
-    final Map<int, Map<double, double>> explicitUsageMap = {};
-    final Map<int, double> legacyUsageMap = {};
-
+    // Map usage by Inward ID
+    final Map<int, double> usageMap = {};
     for (final row in usageResults) {
-      final materialId = row['raw_material_id'] as int;
-      final usedAmount = (row['total_used'] as num?)?.toDouble() ?? 0;
-      final bagSize = (row['bag_size'] as num?)?.toDouble();
-
-      if (bagSize != null) {
-        explicitUsageMap.putIfAbsent(materialId, () => {});
-        explicitUsageMap[materialId]![bagSize] =
-            (explicitUsageMap[materialId]![bagSize] ?? 0) + usedAmount;
-      } else {
-        legacyUsageMap[materialId] =
-            (legacyUsageMap[materialId] ?? 0) + usedAmount;
-      }
+      final inwardId = row['inward_entry_id'] as int;
+      final usedWeight = (row['total_weight_used'] as num?)?.toDouble() ?? 0;
+      usageMap[inwardId] = usedWeight;
     }
 
-    // 3. Process each inward group
-    // We first convert database results to mutable objects to track remaining weight
-    final List<Map<String, dynamic>> buckets = [];
+    // 3. Calculate Remaining Stock per Batch
+    final List<StockByBagSize> stockBatches = [];
 
     for (final row in inwardResults) {
-      buckets.add(Map<String, dynamic>.from(row));
-    }
+      final inwardId = row['inward_id'] as int;
+      final materialId = row['raw_material_id'] as int;
+      final materialName = row['material_name'] as String;
+      final unit = row['unit'] as String;
+      final bagSize = (row['bag_size'] as num).toDouble();
+      final initialBags = (row['initial_bags'] as int); // Explicit integer
+      final initialWeight = (row['initial_weight'] as num).toDouble();
+      final inwardDateStr = row['inward_date'] as String;
+      final inwardDate = DateTime.tryParse(inwardDateStr);
 
-    // Pass 1: Deduct Explicit Usage
-    for (final bucket in buckets) {
-      final materialId = bucket['raw_material_id'] as int;
-      final bagSize = (bucket['bag_size'] as num).toDouble();
-      double totalWeight = (bucket['total_weight'] as num).toDouble();
+      final usedWeight = usageMap[inwardId] ?? 0;
 
-      final explicitUsed = explicitUsageMap[materialId]?[bagSize] ?? 0;
+      // Strict deduction:
+      // We track Weight primarily, but derive Bags.
+      // Constraint: Bags must be integers.
+      // If usedWeight matches specific bags (e.g. 50kg for 2x25kg), bags reduce.
+      // For fractional usage (adjustment/spillage), weight reduces, but bag count logic is stricter.
 
-      // Subtract explicit usage
-      double remainingWeight = totalWeight - explicitUsed;
-      if (remainingWeight < 0)
-        remainingWeight = 0; // Prevent negative stock from bad data
+      // Logic:
+      // remainingWeight = initialWeight - usedWeight
+      // remainingBags = floor(remainingWeight / bagSize) (Simple and robust)
 
-      bucket['current_weight'] = remainingWeight;
-    }
+      final remainingWeight = initialWeight - usedWeight;
 
-    // Pass 2: Deduct Legacy Usage (Largest Stock First)
-    // We prioritize deducting from the bucket with the most weight to minimize
-    // the impact on smaller/newer batches (avoiding the "49 bags instead of 50" issue
-    // due to fractional distribution).
-    if (legacyUsageMap.isNotEmpty) {
-      for (final kv in legacyUsageMap.entries) {
-        final materialId = kv.key;
-        double usageToDeduct = kv.value;
+      if (remainingWeight > 0.05) {
+        // Tolerance 0.05
+        // Calculate remaining complete bags
+        // Using floor to strictly enforce integer bags available for consumption
+        // Adding tiny epsilon to handle float precision issues where 50.0 might be 49.99999
+        final remainingBags = ((remainingWeight + 0.001) / bagSize).floor();
 
-        // Get buckets for this material
-        final materialBuckets = buckets
-            .where((b) => (b['raw_material_id'] as int) == materialId)
-            .toList();
-
-        // Sort by current weight descending (Absorb usage into largest pile)
-        materialBuckets.sort((a, b) => (b['current_weight'] as double)
-            .compareTo(a['current_weight'] as double));
-
-        for (final bucket in materialBuckets) {
-          if (usageToDeduct <= 0) break;
-
-          final currentWeight = bucket['current_weight'] as double;
-          if (currentWeight > 0) {
-            final deduct =
-                usageToDeduct > currentWeight ? currentWeight : usageToDeduct;
-            bucket['current_weight'] = currentWeight - deduct;
-            usageToDeduct -= deduct;
-          }
-        }
-      }
-    }
-
-    // 4. Convert to StockByBagSize objects
-    final List<StockByBagSize> stockItems = [];
-
-    for (final bucket in buckets) {
-      final currentWeight = (bucket['current_weight'] as double);
-
-      // Only show items with positive stock
-      if (currentWeight > 0.01) {
-        // 0.01 tolerance
-        final bagSize = (bucket['bag_size'] as num).toDouble();
-
-        // Calculate full bags only (floor division)
-        // Add a small epsilon to handle floating point errors (e.g., 49.9999 -> 50.0)
-        // This ensures 10 bags don't become 9 due to microscopic precision loss
-        final fullBags = ((currentWeight + 0.01) / bagSize).floor();
-        final fullBagsWeight = fullBags * bagSize;
-
-        // Only show if there's at least one full bag
-        if (fullBags > 0) {
-          stockItems.add(StockByBagSize(
-            materialId: bucket['raw_material_id'] as int,
-            materialName: bucket['material_name'] as String,
+        if (remainingBags > 0) {
+          stockBatches.add(StockByBagSize(
+            materialId: materialId,
+            materialName: materialName,
             bagSize: bagSize,
-            bagCount: fullBags,
-            totalWeight: fullBagsWeight, // Weight of full bags only
-            unit: bucket['unit'] as String,
-            containerUnit: 'packs',
+            bagCount: remainingBags,
+            totalWeight:
+                remainingBags * bagSize, // Display weight of available bags
+            unit: unit,
+            containerUnit: 'packs', // or bags
+            inwardEntryId: inwardId,
+            inwardDate: inwardDate,
           ));
         }
       }
     }
 
-    return stockItems;
+    print('DEBUG: StockCalc - Final Batches: ${stockBatches.length}');
+    for (var b in stockBatches) {
+      print(
+          'DEBUG: Batch #${b.inwardEntryId} - Mat: ${b.materialId} - Bags: ${b.bagCount}');
+    }
+    return stockBatches;
   }
 
   /// Calculate product stock grouped by bag size (unit size)

@@ -13,6 +13,11 @@ class DatabaseService {
     throw Exception('Database not initialized. Call initDatabase first.');
   }
 
+  /// Set database instance (For testing only)
+  static void setDatabase(Database db) {
+    _database = db;
+  }
+
   /// Initialize database at specified path
   static Future<Database> initDatabase(String databasePath) async {
     try {
@@ -31,10 +36,11 @@ class DatabaseService {
       // Open database
       _database = await openDatabase(
         databasePath,
-        version: 18,
+        version: 21,
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
         onConfigure: _onConfigure,
+        onOpen: _onOpen,
       );
 
       _currentDatabasePath = databasePath;
@@ -47,6 +53,35 @@ class DatabaseService {
   /// Configure database (enable foreign keys)
   static Future<void> _onConfigure(Database db) async {
     await db.execute('PRAGMA foreign_keys = ON');
+  }
+
+  /// Handle database open - Check for missing columns that migration might have missed
+  static Future<void> _onOpen(Database db) async {
+    // strict allocation columns check
+    try {
+      // Check if prm table has inward_entry_id
+      final prmInfo =
+          await db.rawQuery('PRAGMA table_info(production_raw_materials)');
+      final hasInwardId =
+          prmInfo.any((col) => col['name'] == 'inward_entry_id');
+      if (!hasInwardId) {
+        print(
+            'Adding missing column inward_entry_id to production_raw_materials');
+        await db.execute(
+            'ALTER TABLE production_raw_materials ADD COLUMN inward_entry_id INTEGER');
+      }
+
+      final hasBagCountUsed =
+          prmInfo.any((col) => col['name'] == 'bag_count_used');
+      if (!hasBagCountUsed) {
+        print(
+            'Adding missing column bag_count_used to production_raw_materials');
+        await db.execute(
+            'ALTER TABLE production_raw_materials ADD COLUMN bag_count_used INTEGER');
+      }
+    } catch (e) {
+      print('Error checking/adding missing columns on open: $e');
+    }
   }
 
   /// Create database schema
@@ -650,6 +685,69 @@ class DatabaseService {
             'Migration to v18 (Force Preferences Schema) completed successfully');
       } catch (e) {
         print('Error in version 18 migration: $e');
+      }
+    }
+
+    if (oldVersion < 19) {
+      // Version 19: Strict Inventory & Adjustments
+      try {
+        await db.transaction((txn) async {
+          // 1. Add inward_entry_id to production_raw_materials
+          // We must recreate the table because SQLite doesn't support adding FK constraints easily
+          await txn.execute(
+              'ALTER TABLE production_raw_materials RENAME TO production_raw_materials_old_v19');
+
+          await txn.execute('''
+            CREATE TABLE production_raw_materials (
+              production_id INTEGER NOT NULL,
+              raw_material_id INTEGER NOT NULL,
+              quantity_used REAL NOT NULL,
+              bag_size REAL,
+              inward_entry_id INTEGER,
+              FOREIGN KEY(production_id) REFERENCES production(id) ON DELETE CASCADE,
+              FOREIGN KEY(raw_material_id) REFERENCES raw_materials(id) ON DELETE CASCADE,
+              FOREIGN KEY(inward_entry_id) REFERENCES inward(id) ON DELETE SET NULL,
+              PRIMARY KEY(production_id, raw_material_id)
+            )
+          ''');
+
+          // Copy old data (inward_entry_id will be NULL for legacy records)
+          await txn.execute('''
+            INSERT INTO production_raw_materials (production_id, raw_material_id, quantity_used, bag_size)
+            SELECT production_id, raw_material_id, quantity_used, bag_size FROM production_raw_materials_old_v19
+          ''');
+
+          await txn.execute('DROP TABLE production_raw_materials_old_v19');
+
+          // 2. Create adjustment_entries table
+          await txn.execute('''
+            CREATE TABLE adjustment_entries (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              reference_model TEXT NOT NULL, 
+              reference_id INTEGER NOT NULL,
+              adjusted_by TEXT,
+              adjustment_type TEXT NOT NULL, 
+              quantity REAL NOT NULL,
+              bag_count_delta INTEGER NOT NULL,
+              reason TEXT,
+              timestamp TEXT DEFAULT (datetime('now'))
+            )
+          ''');
+        });
+        print(
+            'Migration to v19 (Strict Inventory & Adjustments) completed successfully');
+      } catch (e) {
+        print('Error in version 19 migration: $e');
+      }
+    }
+
+    if (oldVersion < 20) {
+      // Version 20: Add bag_count_used to production_raw_materials
+      try {
+        await db.execute(
+            'ALTER TABLE production_raw_materials ADD COLUMN bag_count_used INTEGER');
+      } catch (e) {
+        print('Error adding bag_count_used to production_raw_materials: $e');
       }
     }
   }

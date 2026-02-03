@@ -186,7 +186,7 @@ class ProductionRepository {
   static Future<List<Map<String, dynamic>>> getRawMaterialUsage(
       int productionId) async {
     return await DatabaseService.rawQuery('''
-      SELECT raw_material_id, quantity_used, bag_size
+      SELECT raw_material_id, quantity_used, bag_size, inward_entry_id, bag_count_used
       FROM production_raw_materials 
       WHERE production_id = ?
     ''', [productionId]);

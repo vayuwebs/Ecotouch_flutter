@@ -144,7 +144,7 @@ class ProductionReportTab extends ConsumerWidget {
                           }
 
                           // Grouping Logic
-                          // Map<ProductName, {total_quantity, total_batches, sizes: Map<BagSize, {count, batches}>}>
+                          // Map<ProductName, {total_quantity, total_batches, unit, sizes: Map<BagSize, {count, batches}>}>
                           final Map<String, Map<String, dynamic>> grouped = {};
 
                           for (var item in list) {
@@ -152,11 +152,13 @@ class ProductionReportTab extends ConsumerWidget {
                             final qty = item.totalQuantity;
                             final batches = item.batches;
                             final size = item.unitSize ?? 0.0;
+                            final unit = item.productUnit ?? 'units';
 
                             if (!grouped.containsKey(name)) {
                               grouped[name] = {
                                 'total_quantity': 0.0,
                                 'total_batches': 0,
+                                'unit': unit,
                                 'sizes': <double, Map<String, dynamic>>{}
                               };
                             }
@@ -191,6 +193,7 @@ class ProductionReportTab extends ConsumerWidget {
                                   group['total_quantity'] as double;
                               final totalBatches =
                                   group['total_batches'] as int;
+                              final unit = group['unit'] as String;
                               final sizes = group['sizes']
                                   as Map<double, Map<String, dynamic>>;
 
@@ -206,7 +209,7 @@ class ProductionReportTab extends ConsumerWidget {
                                 ),
                                 child: InkWell(
                                   onTap: () => _showDetailDialog(context, name,
-                                      totalQty, totalBatches, sizes),
+                                      totalQty, totalBatches, sizes, unit),
                                   borderRadius: BorderRadius.circular(8),
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(
@@ -225,7 +228,7 @@ class ProductionReportTab extends ConsumerWidget {
                                                     fontSize: 14)),
                                             const SizedBox(height: 4),
                                             Text(
-                                              '${totalQty.toStringAsFixed(0)} units ($totalBatches batches)',
+                                              '${totalQty.toStringAsFixed(0)} $unit ($totalBatches batches)',
                                               style: TextStyle(
                                                   fontSize: 12,
                                                   color: Theme.of(context)
@@ -539,7 +542,7 @@ class ProductionReportTab extends ConsumerWidget {
   }
 
   void _showDetailDialog(BuildContext context, String name, double totalQty,
-      int totalBatches, Map<double, Map<String, dynamic>> sizes) {
+      int totalBatches, Map<double, Map<String, dynamic>> sizes, String unit) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -562,7 +565,7 @@ class ProductionReportTab extends ConsumerWidget {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(
-                      '$size size: ${qty.toStringAsFixed(0)} units ($batches batches)'),
+                      '$size size: ${qty.toStringAsFixed(0)} $unit ($batches batches)'),
                 );
               }),
             ],

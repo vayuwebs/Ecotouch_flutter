@@ -41,8 +41,11 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
   List<int> _selectedWorkerIds = [];
   List<Map<String, dynamic>> _productBOM = [];
   List<StockByBagSize> _availableStock = [];
-  final Map<int, TextEditingController> _rawMaterialQuantityControllers = {};
-  final Map<int, double?> _selectedBagSizes = {};
+
+  // Strict Inventory: Track Bags (Integer) and Batch Selection (Id)
+  final Map<int, TextEditingController> _bagCountControllers = {};
+  final Map<int, int?> _selectedBatchIds = {}; // MaterialId -> InwardEntryId
+
   List<UnitConversion> _productUnitConversions = [];
 
   bool _isLoading = false;
@@ -56,6 +59,12 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
     // Add listeners for auto-calc
     _unitSizeController.addListener(_calculateTotalQuantity);
     _unitCountController.addListener(_calculateTotalQuantity);
+    _batchesController.addListener(_updateRawMaterialSuggestions);
+
+    // Force refresh of stock data on entry
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.refresh(rawMaterialStockByBagSizeProvider);
+    });
 
     if (widget.production != null) {
       _loadExistingProduction();
@@ -71,7 +80,7 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
     _unitSizeController.dispose();
     _unitCountController.dispose();
     _tabController.dispose();
-    for (var c in _rawMaterialQuantityControllers.values) {
+    for (var c in _bagCountControllers.values) {
       c.dispose();
     }
     super.dispose();
@@ -117,19 +126,34 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
       final rawMaterialUsage =
           await ProductionRepository.getRawMaterialUsage(productionId);
 
+      // We need to fetch the Inward Entry ID for these items if possible
+      // But getRawMaterialUsage only returned quanity_used.
+      // I need to update ProductionRepository.getRawMaterialUsage to return inward_entry_id and bag_count_used
+      // Wait, I haven't updated that query yet! I should do that.
+      // Assuming I will update it or have updated it.
+      // Current implementation of ProductionRepository.getRawMaterialUsage queries 'bag_size'.
+      // I need to update it to select 'inward_entry_id', 'bag_count_used'.
+
       setState(() {
         _selectedWorkerIds = workerIds;
 
         for (final usage in rawMaterialUsage) {
+          // For now, handling potentially missing keys if repository not updated
           final rawMaterialId = usage['raw_material_id'] as int;
-          final quantityUsed = (usage['quantity_used'] as num).toDouble();
-          final bagSize = (usage['bag_size'] as num?)?.toDouble();
+          final inwardEntryId = usage['inward_entry_id'] as int?;
+          final bagCountUsed = usage['bag_count_used'] as int?;
 
-          if (_rawMaterialQuantityControllers.containsKey(rawMaterialId)) {
-            _rawMaterialQuantityControllers[rawMaterialId]!.text =
-                quantityUsed.toString();
+          // Strict Logic: If bagCountUsed is missing (legacy), try to derive from quantity / bag size?
+          // Or just leave empty and force user to re-enter.
+
+          if (inwardEntryId != null) {
+            _selectedBatchIds[rawMaterialId] = inwardEntryId;
           }
-          _selectedBagSizes[rawMaterialId] = bagSize;
+
+          if (_bagCountControllers.containsKey(rawMaterialId)) {
+            _bagCountControllers[rawMaterialId]!.text =
+                (bagCountUsed ?? 0).toString();
+          }
         }
       });
     } catch (e) {
@@ -149,8 +173,8 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
       _productBOM = recipe.map((r) => Map<String, dynamic>.from(r)).toList();
       for (var item in _productBOM) {
         final id = item['raw_material_id'] as int;
-        if (!_rawMaterialQuantityControllers.containsKey(id)) {
-          _rawMaterialQuantityControllers[id] = TextEditingController();
+        if (!_bagCountControllers.containsKey(id)) {
+          _bagCountControllers[id] = TextEditingController(text: '0');
         }
       }
     });
@@ -171,21 +195,50 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
 
     // Only update quantities if NEW entry
     if (widget.production == null) {
-      _updateRawMaterialQuantities();
+      _updateRawMaterialSuggestions();
     }
   }
 
-  void _updateRawMaterialQuantities() {
-    if (widget.production != null) return;
+  void _autoCalculateBags(int rawMaterialId, dynamic ratio, double bagSize) {
+    if (bagSize <= 0) return;
 
     final batches = double.tryParse(_batchesController.text) ?? 0;
+    final ratioDouble = (ratio as num).toDouble();
+    final requiredQty = ratioDouble * batches;
+
+    // Calculate bags needed (Ceiling to ensure enough material)
+    // E.g. Need 30, Bag 15 => 2 bags
+    // Need 31, Bag 15 => 3 bags
+    final bagsNeeded = (requiredQty / bagSize).ceil();
+
+    if (_bagCountControllers.containsKey(rawMaterialId)) {
+      _bagCountControllers[rawMaterialId]!.text = bagsNeeded.toString();
+    }
+  }
+
+  void _updateRawMaterialSuggestions() {
+    if (widget.production != null) return;
+
+    // Iterate all raw materials in BOM and update bags if batch selected
     for (var item in _productBOM) {
-      final rawMaterialId = item['raw_material_id'] as int;
-      final ratio = (item['quantity_ratio'] as num).toDouble();
-      final totalRequired = ratio * batches;
-      if (_rawMaterialQuantityControllers.containsKey(rawMaterialId)) {
-        _rawMaterialQuantityControllers[rawMaterialId]!.text =
-            totalRequired.toStringAsFixed(2);
+      final rId = item['raw_material_id'] as int;
+      final ratio = item['quantity_ratio'];
+      final selectedBatchId = _selectedBatchIds[rId];
+
+      if (selectedBatchId != null) {
+        final stockItem = _availableStock.firstWhere(
+            (s) => s.inwardEntryId == selectedBatchId,
+            orElse: () => StockByBagSize(
+                materialId: -1,
+                materialName: '',
+                bagSize: 0,
+                bagCount: 0,
+                totalWeight: 0,
+                unit: ''));
+
+        if (stockItem.bagSize > 0) {
+          _autoCalculateBags(rId, ratio, stockItem.bagSize);
+        }
       }
     }
   }
@@ -222,58 +275,35 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
         unitCount = double.tryParse(_unitCountController.text);
       }
 
-      // Stock Check
+      // 1. Validate Stock Sources & Quantities
       for (final item in _productBOM) {
         final rId = item['raw_material_id'] as int;
         final rName = item['raw_material_name'] as String;
-        final qtyRequired = double.tryParse(
-                _rawMaterialQuantityControllers[rId]?.text ?? '0') ??
-            0;
-        final selectedBagSize = _selectedBagSizes[rId];
+        final bagsInput =
+            int.tryParse(_bagCountControllers[rId]?.text ?? '0') ?? 0;
+        final selectedBatchId = _selectedBatchIds[rId];
 
-        if (qtyRequired > 0) {
-          if (selectedBagSize == null) {
-            // Should force selection? Or assume valid if logic allows?
-            // If strictly enforcing positive stock, we need a source.
-            throw Exception('Please select a stock source for $rName');
+        // If BOM requires ratio > 0 (it usually does), check if we are consuming
+        // Wait, ratio is per batch. If 1 batch, we need ratio amount.
+        // We shouldn't silently skip if ratio > 0.
+        // But maybe user wants to consume 0?
+        // Let's assume if bags > 0, we need a source.
+
+        if (bagsInput > 0) {
+          if (selectedBatchId == null) {
+            throw Exception('Source batch must be selected for $rName');
           }
 
+          // Verify availability
           final stockItem = _availableStock.firstWhere(
-            (s) => s.materialId == rId && s.bagSize == selectedBagSize,
-            orElse: () => StockByBagSize(
-              materialId: rId,
-              materialName: rName,
-              bagSize: selectedBagSize,
-              bagCount: 0,
-              totalWeight: 0,
-              unit: '',
-            ),
+            (s) => s.inwardEntryId == selectedBatchId,
+            orElse: () =>
+                throw Exception('Selected batch for $rName not found in stock'),
           );
 
-          // Calculate required bags
-          // If bagSize is 0, division by zero! Check logic.
-          // Assuming bagSize > 0.
-          if (selectedBagSize > 0) {
-            // We compare against bagCount (int).
-            // Since we can use partial bags in production (maybe?), we compare total weight?
-            // But stock is "bagCount" packs.
-            // If bagCount is 10. We have 10 bags.
-            // If we need 10.5 bags, we don't have enough.
-            // Let's rely on totalWeight vs quantity?
-            // stockItem.totalWeight comes from DB.
-            // Check: StockByBagSize factory usually calculates totalWeight = bagCount * bagSize.
-
-            // STRICT CHECK:
-            // If implementation allows partial usage of a bag, calculate total weight available.
-            // Total Available = stockItem.bagCount * stockItem.bagSize;
-            // Total Required = qtyRequired;
-
-            final totalAvailable = stockItem.bagCount * stockItem.bagSize;
-            // Allow a small epsilon for float precision?
-            if (totalAvailable < (qtyRequired - 0.001)) {
-              throw Exception(
-                  'Insufficient stock for $rName. Required: $qtyRequired, Available: $totalAvailable (Source: $selectedBagSize)');
-            }
+          if (stockItem.bagCount < bagsInput) {
+            throw Exception(
+                'Insufficient bags in selected batch for $rName.\nRequested: $bagsInput packages\nAvailable: ${stockItem.bagCount} packages\nBatch #${stockItem.inwardEntryId}');
           }
         }
       }
@@ -297,8 +327,7 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
         pId = await ProductionRepository.insert(p);
       }
 
-      // Handle Raw Materials
-      // First delete old usage if editing
+      // Handle Raw Materials (Delete old, Insert new)
       if (widget.production != null) {
         await DatabaseService.delete('production_raw_materials',
             where: 'production_id = ?', whereArgs: [pId]);
@@ -306,16 +335,22 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
 
       for (final item in _productBOM) {
         final rId = item['raw_material_id'] as int;
-        final qty = double.tryParse(
-                _rawMaterialQuantityControllers[rId]?.text ?? '0') ??
-            0;
-        final bag = _selectedBagSizes[rId];
-        if (qty > 0) {
+        final bagsInput =
+            int.tryParse(_bagCountControllers[rId]?.text ?? '0') ?? 0;
+        final selectedBatchId = _selectedBatchIds[rId];
+
+        if (bagsInput > 0 && selectedBatchId != null) {
+          final stockItem = _availableStock
+              .firstWhere((s) => s.inwardEntryId == selectedBatchId);
+          final weightUsed = bagsInput * stockItem.bagSize;
+
           await DatabaseService.insert('production_raw_materials', {
             'production_id': pId,
             'raw_material_id': rId,
-            'quantity_used': qty,
-            'bag_size': bag,
+            'quantity_used': weightUsed,
+            'bag_size': stockItem.bagSize,
+            'inward_entry_id': stockItem.inwardEntryId,
+            'bag_count_used': bagsInput,
           });
         }
       }
@@ -344,6 +379,18 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
 
     // Update stock cache
     final stockAsync = ref.watch(rawMaterialStockByBagSizeProvider);
+    print('DEBUG: Stock Provider State: $stockAsync'); // Debug Print
+
+    if (stockAsync.isLoading && !stockAsync.hasValue) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (stockAsync.hasError) {
+      return Scaffold(
+          body:
+              Center(child: Text('Error loading stock: ${stockAsync.error}')));
+    }
+
     if (stockAsync.hasValue) _availableStock = stockAsync.value!;
 
     return Stack(
@@ -352,14 +399,15 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
           backgroundColor: Colors.white,
           appBar: AppBar(
             title: Text(widget.production == null
-                ? 'New'
-                : 'BP-${widget.production!.id}'),
+                ? 'New Production'
+                : 'Edit BP-${widget.production!.id}'),
             backgroundColor: Colors.white,
             elevation: 0,
             leading: const CloseButton(color: Colors.black),
             titleTextStyle: const TextStyle(
                 color: Colors.black, fontSize: 18, fontWeight: FontWeight.bold),
             actions: [
+              // Date display...
               Padding(
                 padding: const EdgeInsets.only(right: 16.0),
                 child: Center(
@@ -398,23 +446,19 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
                         onPressed: () => Navigator.pop(context),
                         child: const Text('Discard')),
                     const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: widget.production == null
-                            ? Colors.blue.shade50
-                            : Colors.green.shade50,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                          widget.production == null ? 'Draft' : 'Confirmed',
-                          style: TextStyle(
-                              color: widget.production == null
-                                  ? Colors.blue
-                                  : Colors.green,
-                              fontWeight: FontWeight.bold)),
-                    )
+                    if (widget.production != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text('Confirmed',
+                            style: TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.bold)),
+                      )
                   ],
                 ),
               ),
@@ -427,22 +471,23 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Title / Name
+                        // Title
                         Text(
                           widget.production == null
-                              ? 'Draft'
+                              ? 'Production Details'
                               : 'BP-${widget.production!.id}',
                           style: const TextStyle(
-                              fontSize: 28, fontWeight: FontWeight.normal),
+                              fontSize: 24, fontWeight: FontWeight.normal),
                         ),
                         const SizedBox(height: 24),
 
-                        // Top Form Grid
+                        // Form Fields (Product, Batches etc)
+                        // Reusing existing widgets essentially but simplifying
+
                         Wrap(
                           spacing: 40,
                           runSpacing: 20,
                           children: [
-                            // Product
                             SizedBox(
                               width: 400,
                               child: productsAsync.when(
@@ -452,7 +497,6 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
                                         decoration: const InputDecoration(
                                           labelText: 'Product',
                                           border: UnderlineInputBorder(),
-                                          contentPadding: EdgeInsets.zero,
                                         ),
                                         items: products
                                             .map((p) => DropdownMenuItem(
@@ -474,20 +518,20 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
                             ),
                           ],
                         ),
-
                         const SizedBox(height: 32),
 
-                        const SizedBox(height: 20),
-
-                        // Batches & Units Row
                         Row(children: [
                           Expanded(
                             child: TextFormField(
                               controller: _batchesController,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly
+                              ],
                               decoration: const InputDecoration(
-                                  labelText: 'Operation Count (Batches)',
+                                  labelText: 'Batches',
                                   border: OutlineInputBorder()),
-                              onChanged: (_) => _updateRawMaterialQuantities(),
+                              onChanged: (_) => _updateRawMaterialSuggestions(),
                             ),
                           ),
                           const SizedBox(width: 20),
@@ -501,37 +545,21 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
                               decoration: const InputDecoration(
                                   labelText: 'Unit Size',
                                   border: OutlineInputBorder()),
-                              items: _productUnitConversions.isEmpty
-                                  ? [
-                                      const DropdownMenuItem(
-                                          value: null,
-                                          enabled: false,
-                                          child: Text("No units available"))
-                                    ]
-                                  : (() {
-                                      final seenFactors = <double>{};
-                                      return _productUnitConversions
-                                          .where((c) => seenFactors
-                                              .add(c.conversionFactor))
-                                          .map((c) => DropdownMenuItem(
-                                                value: c.conversionFactor,
-                                                child: Text(
-                                                    "${c.fromUnit} -> ${c.toUnit} (${c.conversionFactor})"),
-                                              ))
-                                          .toList();
-                                    })(),
-                              onChanged: _productUnitConversions.isEmpty
-                                  ? null
-                                  : (val) {
-                                      if (val != null) {
-                                        setState(() {
-                                          _unitSizeController.text =
-                                              val.toString();
-                                        });
-                                        // Trigger calculation
-                                        _calculateTotalQuantity();
-                                      }
-                                    },
+                              items: _productUnitConversions
+                                  .map((c) => DropdownMenuItem(
+                                        value: c.conversionFactor,
+                                        child: Text(
+                                            "${c.fromUnit} -> ${c.toUnit} (${c.conversionFactor})"),
+                                      ))
+                                  .toList(),
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setState(() {
+                                    _unitSizeController.text = val.toString();
+                                  });
+                                  _calculateTotalQuantity();
+                                }
+                              },
                             ),
                           ),
                           const SizedBox(width: 20),
@@ -548,38 +576,32 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
                         const SizedBox(height: 32),
 
                         // Tabs
-                        Column(
-                          children: [
-                            TabBar(
+                        Column(children: [
+                          TabBar(
+                            controller: _tabController,
+                            labelColor: const Color(0xFF714B67),
+                            unselectedLabelColor: Colors.grey,
+                            indicatorColor: const Color(0xFF714B67),
+                            tabs: const [
+                              Tab(text: 'Raw Materials (Strict Allocation)'),
+                              Tab(text: 'Workers'),
+                            ],
+                          ),
+                          Container(
+                            height: 500, // Increased height
+                            decoration: BoxDecoration(
+                                border: Border(
+                                    top: BorderSide(
+                                        color: Colors.grey.shade300))),
+                            child: TabBarView(
                               controller: _tabController,
-                              labelColor: const Color(0xFF714B67),
-                              unselectedLabelColor: Colors.grey,
-                              indicatorColor: const Color(0xFF714B67),
-                              isScrollable: true,
-                              tabs: const [
-                                Tab(text: 'Components'),
-                                Tab(text: 'Workers'),
+                              children: [
+                                _buildComponentsTab(),
+                                _buildMiscTab(workersAsync),
                               ],
                             ),
-                            Container(
-                              height: 400,
-                              decoration: BoxDecoration(
-                                  border: Border(
-                                      top: BorderSide(
-                                          color: Colors.grey.shade300))),
-                              child: TabBarView(
-                                controller: _tabController,
-                                children: [
-                                  // TAB 1: Components (BOM)
-                                  _buildComponentsTab(),
-
-                                  // TAB 2: Misc (Workers, Notes)
-                                  _buildMiscTab(workersAsync),
-                                ],
-                              ),
-                            )
-                          ],
-                        ),
+                          )
+                        ])
                       ],
                     ),
                   ),
@@ -605,80 +627,178 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen>
     return ListView(
       padding: const EdgeInsets.only(top: 16),
       children: [
-        // Header
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
           child: Row(
             children: [
               Expanded(
                   flex: 3,
-                  child: Text('Product',
+                  child: Text('Material',
+                      style: TextStyle(fontWeight: FontWeight.bold))),
+              Expanded(
+                  flex: 3,
+                  child: Text('Source Batch',
                       style: TextStyle(fontWeight: FontWeight.bold))),
               Expanded(
                   flex: 2,
-                  child: Text('To Consume',
+                  child: Text('Bags Used',
                       style: TextStyle(fontWeight: FontWeight.bold))),
               Expanded(
                   flex: 2,
-                  child: Text('Stock Source',
+                  child: Text('Weight (Calc)',
                       style: TextStyle(fontWeight: FontWeight.bold))),
             ],
           ),
         ),
         const Divider(),
-
         ..._productBOM.map((item) {
           final rawMaterialId = item['raw_material_id'] as int;
           final rawMaterialName = item['raw_material_name'] as String;
           final unit = item['unit'] as String;
-          final options = _availableStock
+
+          // Filter stock for this material
+          final batches = _availableStock
               .where((s) => s.materialId == rawMaterialId)
               .toList();
+
+          print('DEBUG: Material ID: $rawMaterialId ($rawMaterialName)');
+          print('DEBUG: Available Stock Count: ${_availableStock.length}');
+          if (_availableStock.isNotEmpty) {
+            print(
+                'DEBUG: First Stock Item Material ID: ${_availableStock.first.materialId}');
+            print(
+                'DEBUG: First Stock Item Date: ${_availableStock.first.inwardDate}');
+          }
+          print('DEBUG: Batches found for this material: ${batches.length}');
+
+          final selectedBatchId = _selectedBatchIds[rawMaterialId];
+          final selectedBatch = batches.firstWhere(
+              (b) => b.inwardEntryId == selectedBatchId,
+              orElse: () => batches.isNotEmpty
+                  ? batches.first
+                  : StockByBagSize(
+                      materialId: -1,
+                      materialName: '',
+                      bagSize: 0,
+                      bagCount: 0,
+                      totalWeight: 0,
+                      unit: ''));
+          // Note: orElse dummy is just to prevent crash, ideally handle null properly.
+
+          final bagCountCtrl = _bagCountControllers[rawMaterialId]!;
+          final bagsUsed = int.tryParse(bagCountCtrl.text) ?? 0;
+
+          double bagSize = 0;
+          if (selectedBatchId != null) {
+            final b = batches.firstWhere(
+                (s) => s.inwardEntryId == selectedBatchId,
+                orElse: () => selectedBatch);
+            bagSize = b.bagSize;
+          }
+          final calcWeight = bagsUsed * bagSize;
 
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Material Name
                 Expanded(
                   flex: 3,
-                  child: Text(rawMaterialName),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SizedBox(
-                        width: 80,
-                        child: TextFormField(
-                          controller:
-                              _rawMaterialQuantityControllers[rawMaterialId],
-                          decoration: const InputDecoration(
-                              isDense: true, border: OutlineInputBorder()),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(unit, style: const TextStyle(color: Colors.grey)),
+                      Text(rawMaterialName,
+                          style: const TextStyle(fontWeight: FontWeight.w500)),
+                      Text('Ratio: ${item['quantity_ratio']} $unit / batch',
+                          style: const TextStyle(
+                              fontSize: 12, color: Colors.grey)),
                     ],
                   ),
                 ),
+
+                // Batch Selector
+                Expanded(
+                  flex: 3,
+                  child: batches.isEmpty
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 10, horizontal: 8),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey.shade400),
+                            borderRadius: BorderRadius.circular(4),
+                            color: Colors.grey.shade100,
+                          ),
+                          child: const Text('No Stock Available',
+                              style:
+                                  TextStyle(fontSize: 13, color: Colors.grey)),
+                        )
+                      : DropdownButtonFormField<int>(
+                          value: selectedBatchId,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(
+                                vertical: 10, horizontal: 8),
+                            hintText: 'Select Batch',
+                          ),
+                          items: batches.map((s) {
+                            return DropdownMenuItem<int>(
+                              value: s.inwardEntryId,
+                              child: Text(
+                                'Batch #${s.inwardEntryId} (${s.bagSize}$unit) - ${s.bagCount} pkts left',
+                                style: const TextStyle(fontSize: 13),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            setState(() {
+                              _selectedBatchIds[rawMaterialId] = val;
+                            });
+                            // Auto-calculate bags based on recipe
+                            if (val != null) {
+                              final batch = batches
+                                  .firstWhere((b) => b.inwardEntryId == val);
+                              _autoCalculateBags(rawMaterialId,
+                                  item['quantity_ratio'], batch.bagSize);
+                            }
+                          },
+                        ),
+                ),
+
+                const SizedBox(width: 8),
+
+                // Bags Used Input
                 Expanded(
                   flex: 2,
-                  child: DropdownButtonFormField<double>(
-                    value: _selectedBagSizes[rawMaterialId],
+                  child: TextFormField(
+                    controller: bagCountCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     decoration: const InputDecoration(
                       isDense: true,
                       border: OutlineInputBorder(),
-                      hintText: 'Source',
+                      suffixText: 'pkts',
                     ),
-                    items: options
-                        .map((s) => DropdownMenuItem(
-                              value: s.bagSize,
-                              child: Text(
-                                  '${s.bagSize} ($unit) - ${s.bagCount} avail'),
-                            ))
-                        .toList(),
-                    onChanged: (v) =>
-                        setState(() => _selectedBagSizes[rawMaterialId] = v),
+                    onChanged: (_) =>
+                        setState(() {}), // rebuild to update calc weight
+                  ),
+                ),
+                const SizedBox(width: 8),
+
+                // Calculated Weight
+                Expanded(
+                  flex: 2,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                    color: Colors.grey.shade100,
+                    child: Text(
+                      '${calcWeight.toStringAsFixed(2)} $unit',
+                      textAlign: TextAlign.right,
+                    ),
                   ),
                 ),
               ],
